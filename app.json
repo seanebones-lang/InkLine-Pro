@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "InkLinePro",
+    "slug": "inklinepro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.inklinepro.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs access to camera to take photos for printing.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select images for printing.",
+        "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to connect to ESC/POS printers.",
+        "NSLocationWhenInUseUsageDescription": "This app needs access to location for Bluetooth device discovery.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location for Bluetooth device discovery."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.inklinepro.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
