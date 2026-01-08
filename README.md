@@ -1,2 +1,2 @@
 # InkLine-Pro
-InkLine Pro is a React Native mobile app for tattoo artists that generates high-quality linework designs from text descriptions or uploaded photos using xAI's Grok API and Hugging Face models, with white-labeled outputs.
+InkLine Pro is a React Native mobile app for tattoo artists that generates high-quality linework designs from text descriptions or uploaded photos using xAI's Grok API and Hugging Face models, with white-labeled outputs. It supports subscription-based access with your xAI key, exports print-ready images with dotted shading references, and enables wireless sending to printers via WiFi or Bluetooth. The app deploys seamlessly to iOS and Android with modular code optimized for App Store and Google Play compliance.
