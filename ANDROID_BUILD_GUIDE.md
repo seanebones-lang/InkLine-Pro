@@ -2,9 +2,9 @@
 
 **Platform:** Android  
 **Last Updated:** January 2026  
-**Expo SDK:** 52  
-**React Native:** 0.77.0  
-**Minimum SDK:** 26 (Android 8.0)
+**Expo SDK:** 54  
+**React Native:** 0.79.0  
+**Minimum SDK:** 34 (Android 14.0) - Optimized for Android 15+
 
 ---
 
@@ -32,7 +32,7 @@
 
 2. **Java Development Kit (JDK)**
    ```bash
-   # Install JDK 17 (required for React Native 0.77)
+   # Install JDK 21 (required for React Native 0.79)
    # macOS (using Homebrew)
    brew install openjdk@17
    
@@ -77,7 +77,7 @@
 
 6. **Node.js & npm**
    ```bash
-   node --version  # Should be 18.x or later
+   node --version  # Should be 20.x or later (LTS)
    npm --version
    ```
 
@@ -480,7 +480,7 @@ eas build --profile development --platform android --local
     "android": {
       "compileSdkVersion": 33,
       "targetSdkVersion": 33,
-      "minSdkVersion": 26
+      "minSdkVersion": 34
     }
   }
 }
@@ -830,8 +830,8 @@ eas build:view [build-id]
 ### Q: What Android versions are supported?
 
 **A:**
-- **Minimum:** Android 8.0 (API 26)
-- **Target:** Android 13+ (API 33+)
+- **Minimum:** Android 14.0 (API 34)
+- **Target:** Android 15+ (API 35+)
 - **Test on:** Multiple versions for compatibility
 
 ---

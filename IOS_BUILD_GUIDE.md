@@ -2,8 +2,9 @@
 
 **Platform:** iOS (iPhone & iPad)  
 **Last Updated:** January 2026  
-**Expo SDK:** 52  
-**React Native:** 0.77.0
+**Expo SDK:** 54  
+**React Native:** 0.79.0  
+**Minimum iOS:** 18.0 (Optimized for iOS 26)
 
 ---
 
@@ -38,7 +39,7 @@
 3. **Node.js & npm**
    ```bash
    # Verify installation
-   node --version  # Should be 18.x or later
+   node --version  # Should be 20.x or later (LTS)
    npm --version
    ```
 

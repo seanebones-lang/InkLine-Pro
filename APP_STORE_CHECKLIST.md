@@ -98,7 +98,7 @@
 ## Technical Requirements
 
 ### iOS
-- [ ] App supports iOS 13.0+
+- [ ] App supports iOS 18.0+ (optimized for iOS 26)
 - [ ] App works on iPhone and iPad
 - [ ] App supports all required device orientations
 - [ ] App handles different screen sizes
@@ -109,7 +109,7 @@
 - [ ] App requests permissions appropriately
 
 ### Android
-- [ ] App supports Android 8.0+ (API 26+)
+- [ ] App supports Android 14.0+ (API 34+, optimized for Android 15+)
 - [ ] App works on various Android devices
 - [ ] App supports different screen densities
 - [ ] App handles different Android versions

@@ -3,9 +3,10 @@
 **Professional AI-Powered Tattoo Design Generation Platform**
 
 [![Current Score](https://img.shields.io/badge/Score-98%2F100-brightgreen)]()
-[![React Native](https://img.shields.io/badge/React%20Native-0.77.0-blue)]()
-[![Expo SDK](https://img.shields.io/badge/Expo%20SDK-52-blue)]()
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.3.3-blue)]()
+[![React Native](https://img.shields.io/badge/React%20Native-0.79.0-blue)]()
+[![Expo SDK](https://img.shields.io/badge/Expo%20SDK-54-blue)]()
+[![React](https://img.shields.io/badge/React-19.0.0-blue)]()
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7.0-blue)]()
 
 InkLine Pro is a cutting-edge mobile application that empowers professional tattoo artists and enthusiasts to create precise, high-quality tattoo linework designs using advanced AI technology. The app combines xAI Grok Vision AI with Hugging Face lineart processing to generate professional-grade tattoo designs from text descriptions and reference images.
 
@@ -17,7 +18,8 @@ InkLine Pro is a comprehensive tattoo design generation platform built with Reac
 
 ### Core Technology Stack
 
-- **Frontend**: React Native 0.77.0 with Expo SDK 52
+- **Frontend**: React Native 0.79.0 with Expo SDK 54
+- **React**: 19.0.0 (2026 standard)
 - **AI Integration**: xAI Grok Vision API + Hugging Face ControlNet
 - **Backend**: Supabase (PostgreSQL, Authentication, Row Level Security)
 - **Payments**: RevenueCat (Subscription Management)
@@ -141,8 +143,8 @@ Flexible pricing for all users:
 
 ## 📱 Platform Support
 
-- **iOS**: 13.0+ (iPhone & iPad)
-- **Android**: 8.0+ (API 26+)
+- **iOS**: 18.0+ (iPhone & iPad) - Optimized for iOS 26
+- **Android**: 14.0+ (API 34+) - Optimized for Android 15+
 - **Offline**: Full offline support with automatic sync
 - **Tablets**: Optimized for larger screens
 
@@ -237,7 +239,7 @@ Flexible pricing for all users:
 
 ### Prerequisites
 
-- **Node.js**: 18.x or later
+- **Node.js**: 20.x or later (LTS)
 - **npm**: 9.x or later
 - **Expo CLI**: Latest version
 - **EAS CLI**: For builds (`npm install -g eas-cli`)

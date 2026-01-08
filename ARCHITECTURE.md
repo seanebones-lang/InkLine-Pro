@@ -371,10 +371,10 @@ iOS/Android Apps
 
 ### Core
 
-- **React Native**: 0.77.0
-- **Expo**: SDK 52
-- **TypeScript**: 5.3.3
-- **React**: 18.3.1
+- **React Native**: 0.79.0
+- **Expo**: SDK 54
+- **TypeScript**: 5.7.0
+- **React**: 19.0.0
 
 ### Backend
 

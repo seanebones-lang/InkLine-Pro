@@ -17,6 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.inklinepro.app",
+      "deploymentTarget": "18.0",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to camera to take photos for printing.",
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select images for printing.",
@@ -31,6 +32,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.inklinepro.app",
+      "minSdkVersion": 34,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
