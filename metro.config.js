@@ -17,8 +17,8 @@ config.transformer = {
       keep_fnames: true,
     },
     compress: {
-      // Remove console statements in production
-      drop_console: process.env.NODE_ENV === 'production',
+      // Keep console for debugging web demo
+      drop_console: false,
       // Remove debugger statements
       drop_debugger: true,
       // Dead code elimination

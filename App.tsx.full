@@ -1,0 +1,63 @@
+import React, { useEffect } from 'react';
+import { View, Platform } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { StatusBar } from 'expo-status-bar';
+import './global.css';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { NetworkIndicator } from './src/components/NetworkIndicator';
+import { ThemeProvider } from './src/contexts/ThemeContext';
+import { TabNavigator } from './src/navigation/TabNavigator';
+import { startHealthChecks, stopHealthChecks } from './src/utils/healthCheck';
+import { logger } from './src/utils/logger';
+import { initSentry } from './src/config/sentry';
+import { startMonitoring, stopMonitoring } from './src/utils/monitoring';
+import { IS_WEB_DEMO } from './src/config/webDemo';
+
+// Conditionally import providers based on platform
+const AuthProvider = Platform.OS === 'web' && IS_WEB_DEMO
+  ? require('./src/contexts/AuthContext.web').AuthProvider
+  : require('./src/contexts/AuthContext').AuthProvider;
+
+const SubscriptionProvider = require('./src/contexts/SubscriptionContext').SubscriptionProvider;
+
+export default function App() {
+  useEffect(() => {
+    // Only initialize monitoring on native platforms
+    if (Platform.OS !== 'web') {
+      // Initialize Sentry for error tracking
+      initSentry(process.env.EXPO_PUBLIC_SENTRY_DSN);
+      
+      // Start health checks on app launch
+      startHealthChecks(60000); // Check every minute
+      
+      // Start performance monitoring
+      startMonitoring(300000); // Check every 5 minutes
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (Platform.OS !== 'web') {
+        stopHealthChecks();
+        stopMonitoring();
+      }
+    };
+  }, []);
+
+  return (
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <SubscriptionProvider>
+            <View style={{ flex: 1 }}>
+              <NavigationContainer>
+                <StatusBar style="auto" />
+                {Platform.OS !== 'web' && <NetworkIndicator />}
+                <TabNavigator />
+              </NavigationContainer>
+            </View>
+          </SubscriptionProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
+  );
+}

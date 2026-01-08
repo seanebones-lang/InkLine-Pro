@@ -1,35 +1,13 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
-import { Platform } from 'react-native';
-import { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { IS_WEB_DEMO } from '../config/webDemo';
 import { mockSubscription } from '../services/mockServices';
 import { useAuth } from './AuthContext';
 import { logger } from '../utils/logger';
 
-// Conditionally import RevenueCat or use mocks
-const revenueCat = Platform.OS === 'web' && IS_WEB_DEMO
-  ? null
-  : require('../config/revenuecat');
-
-const getOfferings = Platform.OS === 'web' && IS_WEB_DEMO
-  ? async () => mockSubscription.getOfferings()
-  : revenueCat?.getOfferings;
-
-const getCustomerInfo = Platform.OS === 'web' && IS_WEB_DEMO
-  ? async () => mockSubscription.getCustomerInfo()
-  : revenueCat?.getCustomerInfo;
-
-const purchasePackage = Platform.OS === 'web' && IS_WEB_DEMO
-  ? async () => mockSubscription.getCustomerInfo()
-  : revenueCat?.purchasePackage;
-
-const restorePurchases = Platform.OS === 'web' && IS_WEB_DEMO
-  ? async () => mockSubscription.getCustomerInfo()
-  : revenueCat?.restorePurchases;
-
-const checkSubscriptionStatus = Platform.OS === 'web' && IS_WEB_DEMO
-  ? () => true // Always subscribed in demo
-  : revenueCat?.checkSubscriptionStatus;
+// Web-compatible type definitions (simplified)
+type PurchasesOffering = any;
+type CustomerInfo = any;
+type PurchasesPackage = any;
 
 interface SubscriptionContextType {
   isSubscribed: boolean;
@@ -57,14 +35,14 @@ interface SubscriptionProviderProps {
 
 export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ children }) => {
   const { user } = useAuth();
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isSubscribed, setIsSubscribed] = useState(true); // Always subscribed in web demo
+  const [isLoading, setIsLoading] = useState(false);
   const [offerings, setOfferings] = useState<PurchasesOffering | null>(null);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
 
   const refreshSubscription = useCallback(async () => {
     if (!user) {
-      setIsSubscribed(false);
+      setIsSubscribed(true); // Still show as subscribed in demo
       setIsLoading(false);
       return;
     }
@@ -72,16 +50,16 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
     try {
       setIsLoading(true);
       const [offeringsData, customerInfoData] = await Promise.all([
-        getOfferings(),
-        getCustomerInfo(),
+        mockSubscription.getOfferings(),
+        mockSubscription.getCustomerInfo(),
       ]);
 
       setOfferings(offeringsData);
       setCustomerInfo(customerInfoData);
-      setIsSubscribed(checkSubscriptionStatus(customerInfoData));
+      setIsSubscribed(true);
     } catch (error) {
       logger.error('Error refreshing subscription:', error);
-      setIsSubscribed(false);
+      setIsSubscribed(true); // Still show as subscribed in demo
     } finally {
       setIsLoading(false);
     }
@@ -91,40 +69,19 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
     if (user) {
       refreshSubscription();
     } else {
-      setIsSubscribed(false);
+      setIsSubscribed(true); // Still show as subscribed in demo
       setIsLoading(false);
     }
   }, [user, refreshSubscription]);
 
-  const purchaseSubscription = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
-    try {
-      const newCustomerInfo = await purchasePackage(pkg);
-      if (newCustomerInfo) {
-        setCustomerInfo(newCustomerInfo);
-        setIsSubscribed(checkSubscriptionStatus(newCustomerInfo));
-        return true;
-      }
-      return false;
-    } catch (error) {
-      logger.error('Error purchasing subscription:', error);
-      return false;
-    }
+  const purchaseSubscription = useCallback(async (_pkg: PurchasesPackage): Promise<boolean> => {
+    // Mock successful purchase in web demo
+    return true;
   }, []);
 
   const restoreSubscription = useCallback(async (): Promise<boolean> => {
-    try {
-      const restoredCustomerInfo = await restorePurchases();
-      if (restoredCustomerInfo) {
-        setCustomerInfo(restoredCustomerInfo);
-        const hasActiveSubscription = checkSubscriptionStatus(restoredCustomerInfo);
-        setIsSubscribed(hasActiveSubscription);
-        return hasActiveSubscription;
-      }
-      return false;
-    } catch (error) {
-      logger.error('Error restoring subscription:', error);
-      return false;
-    }
+    // Mock successful restore in web demo
+    return true;
   }, []);
 
   // Memoize context value to prevent unnecessary re-renders

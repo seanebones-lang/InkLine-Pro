@@ -7,8 +7,8 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Image as RNImage,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
 import Animated, {
   FadeIn,
@@ -18,14 +18,31 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { ProtectedRoute } from '../components/ProtectedRoute';
-import {
+import { Platform } from 'react-native';
+import { IS_WEB_DEMO } from '../config/webDemo';
+
+// Conditionally import native modules
+const Image = Platform.OS === 'web' ? RNImage : require('expo-image').Image;
+
+// Conditionally import services based on platform
+const historyService = Platform.OS === 'web' && IS_WEB_DEMO
+  ? require('../services/historyService.web')
+  : require('../services/historyService');
+
+const printService = Platform.OS === 'web' && IS_WEB_DEMO
+  ? require('../services/printService.web')
+  : require('../services/printService');
+
+const {
   getGenerations,
   deleteGeneration,
   getGenerationImage,
-  syncAllToSupabase,
   TattooGeneration,
-} from '../services/historyService';
-import { shareDesign } from '../services/printService';
+} = historyService;
+
+// syncAllToSupabase may not exist in web demo
+const syncAllToSupabase = historyService.syncAllToSupabase || (async () => {});
+const { shareDesign } = printService;
 import { useTheme, ThemeContextType } from '../contexts/ThemeContext';
 import { logger } from '../utils/logger';
 

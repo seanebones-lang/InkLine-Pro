@@ -1,52 +1,26 @@
-import React, { useEffect } from 'react';
-import { View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
-import { StatusBar } from 'expo-status-bar';
-import './global.css';
-import { ErrorBoundary } from './src/components/ErrorBoundary';
-import { NetworkIndicator } from './src/components/NetworkIndicator';
-import { AuthProvider } from './src/contexts/AuthContext';
-import { SubscriptionProvider } from './src/contexts/SubscriptionContext';
-import { ThemeProvider } from './src/contexts/ThemeContext';
-import { TabNavigator } from './src/navigation/TabNavigator';
-import { startHealthChecks, stopHealthChecks } from './src/utils/healthCheck';
-import { logger } from './src/utils/logger';
-import { initSentry } from './src/config/sentry';
-import { startMonitoring, stopMonitoring } from './src/utils/monitoring';
+import React from 'react';
+import { View, Text } from 'react-native';
+
+console.log('[App] Starting to render');
 
 export default function App() {
-  useEffect(() => {
-    // Initialize Sentry for error tracking
-    initSentry(process.env.EXPO_PUBLIC_SENTRY_DSN);
-    
-    // Start health checks on app launch
-    startHealthChecks(60000); // Check every minute
-    
-    // Start performance monitoring
-    startMonitoring(300000); // Check every 5 minutes
+  console.log('[App] App component rendering');
 
-    // Cleanup on unmount
-    return () => {
-      stopHealthChecks();
-      stopMonitoring();
-    };
-  }, []);
-
-  return (
-    <ErrorBoundary>
-      <ThemeProvider>
-        <AuthProvider>
-          <SubscriptionProvider>
-            <View style={{ flex: 1 }}>
-              <NavigationContainer>
-                <StatusBar style="auto" />
-                <NetworkIndicator />
-                <TabNavigator />
-              </NavigationContainer>
-            </View>
-          </SubscriptionProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
-  );
+  try {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
+        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#000000' }}>
+          Hello World - InkLine Pro Web Demo
+        </Text>
+        <Text style={{ fontSize: 16, color: '#666666', marginTop: 16 }}>
+          If you can see this, React is working!
+        </Text>
+      </View>
+    );
+  } catch (error) {
+    console.error('[App] Render error:', error);
+    throw error;
+  }
 }
+
+console.log('[App] Module loaded successfully');

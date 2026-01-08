@@ -9,14 +9,36 @@ import {
   Alert,
   Modal,
   FlatList,
+  Image as RNImage,
 } from 'react-native';
-import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { ProtectedRoute } from '../components/ProtectedRoute';
-import { generateTattooDesignWithLineart, processImageForAPI } from '../services/aiService';
-import { LineworkViewer } from '../components/LineworkViewer';
-import {
+import { Platform } from 'react-native';
+import { IS_WEB_DEMO } from '../config/webDemo';
+
+// Conditionally import native modules
+const Image = Platform.OS === 'web' ? RNImage : require('expo-image').Image;
+const ImagePicker = Platform.OS === 'web' ? null : require('expo-image-picker');
+const FileSystem = Platform.OS === 'web' ? null : require('expo-file-system');
+
+// Conditionally import services based on platform
+const aiService = Platform.OS === 'web' && IS_WEB_DEMO
+  ? require('../services/aiService.web')
+  : require('../services/aiService');
+
+const printService = Platform.OS === 'web' && IS_WEB_DEMO
+  ? require('../services/printService.web')
+  : require('../services/printService');
+
+const historyService = Platform.OS === 'web' && IS_WEB_DEMO
+  ? require('../services/historyService.web')
+  : require('../services/historyService');
+
+const supabaseConfig = Platform.OS === 'web' && IS_WEB_DEMO
+  ? require('../config/supabase.web')
+  : require('../config/supabase');
+
+const { generateTattooDesignWithLineart, processImageForAPI } = aiService;
+const {
   printViaBluetooth,
   printViaWiFi,
   scanBluetoothPrinters,
@@ -24,9 +46,11 @@ import {
   getAvailablePrintOptions,
   exportAsPNG300DPI,
   BluetoothDevice,
-} from '../services/printService';
-import { saveGenerationLocally } from '../services/historyService';
-import { supabase } from '../config/supabase';
+} = printService;
+const { saveGenerationLocally } = historyService;
+const { supabase } = supabaseConfig;
+
+import { LineworkViewer } from '../components/LineworkViewer';
 import { logger } from '../utils/logger';
 import { sanitizeDescription } from '../utils/inputSanitization';
 import { grokApiCircuitBreaker } from '../utils/circuitBreaker';
@@ -66,7 +90,7 @@ const GenerateContent: React.FC = () => {
       setGeneratedSvg(null);
       
       // Cleanup temporary image files
-      if (selectedImage?.startsWith('file://')) {
+      if (selectedImage?.startsWith('file://') && FileSystem) {
         FileSystem.deleteAsync(selectedImage, { idempotent: true }).catch(() => {
           // Ignore errors during cleanup
         });
@@ -75,9 +99,11 @@ const GenerateContent: React.FC = () => {
   }, [selectedImage]);
 
   const requestImagePickerPermissions = useCallback(async () => {
+    if (!ImagePicker) return true; // Web doesn't need permissions
+
     const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
     const { status: libraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
+
     if (cameraStatus !== 'granted' || libraryStatus !== 'granted') {
       Alert.alert(
         'Permissions Required',
@@ -89,6 +115,11 @@ const GenerateContent: React.FC = () => {
   }, []);
 
   const pickImageFromGallery = useCallback(async () => {
+    if (!ImagePicker) {
+      Alert.alert('Not Available', 'Image picker is not available on this platform.');
+      return;
+    }
+
     const hasPermission = await requestImagePickerPermissions();
     if (!hasPermission) return;
 
@@ -114,6 +145,11 @@ const GenerateContent: React.FC = () => {
   }, []);
 
   const takePhoto = useCallback(async () => {
+    if (!ImagePicker) {
+      Alert.alert('Not Available', 'Camera is not available on this platform.');
+      return;
+    }
+
     const hasPermission = await requestImagePickerPermissions();
     if (!hasPermission) return;
 
