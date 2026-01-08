@@ -8,18 +8,38 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Modal,
+  FlatList,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { generateTattooDesignWithLineart, processImageForAPI } from '../services/aiService';
+import { LineworkViewer } from '../components/LineworkViewer';
+import {
+  printViaBluetooth,
+  printViaWiFi,
+  scanBluetoothPrinters,
+  shareDesign,
+  getAvailablePrintOptions,
+  exportAsPNG300DPI,
+  BluetoothDevice,
+} from '../services/printService';
 
 const GenerateContent: React.FC = () => {
   const [description, setDescription] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [generatedSvg, setGeneratedSvg] = useState<string | null>(null);
   const [generatedImageUri, setGeneratedImageUri] = useState<string | null>(null);
+  const [generatedBase64, setGeneratedBase64] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState('');
+  
+  // Print states
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [bluetoothDevices, setBluetoothDevices] = useState<BluetoothDevice[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printOptions, setPrintOptions] = useState(getAvailablePrintOptions());
 
   const requestImagePickerPermissions = async () => {
     const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
@@ -129,6 +149,8 @@ const GenerateContent: React.FC = () => {
       setGeneratedSvg(result.svg);
       // Create data URI for image display
       setGeneratedImageUri(`data:image/png;base64,${result.base64}`);
+      // Store base64 for printing/export
+      setGeneratedBase64(result.base64);
       setProgress('');
     } catch (error: any) {
       console.error('Generation error:', error);
@@ -147,7 +169,76 @@ const GenerateContent: React.FC = () => {
     setSelectedImage(null);
     setGeneratedSvg(null);
     setGeneratedImageUri(null);
+    setGeneratedBase64(null);
     setProgress('');
+  };
+
+  // Print functions
+  const handlePrint = () => {
+    if (!generatedBase64) {
+      Alert.alert('Error', 'No design to print');
+      return;
+    }
+    setShowPrintModal(true);
+    if (printOptions.bluetooth) {
+      scanForBluetoothDevices();
+    }
+  };
+
+  const scanForBluetoothDevices = async () => {
+    setIsScanning(true);
+    try {
+      const devices = await scanBluetoothPrinters();
+      setBluetoothDevices(devices);
+      if (devices.length === 0) {
+        Alert.alert('No Devices', 'No Bluetooth printers found');
+      }
+    } catch (error: any) {
+      Alert.alert('Scan Error', error.message || 'Failed to scan for printers');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleBluetoothPrint = async (deviceAddress: string) => {
+    if (!generatedBase64) return;
+
+    setIsPrinting(true);
+    try {
+      // Export as PNG first
+      const pngUri = await exportAsPNG300DPI(generatedBase64);
+      await printViaBluetooth(deviceAddress, pngUri);
+      Alert.alert('Success', 'Design sent to printer');
+      setShowPrintModal(false);
+    } catch (error: any) {
+      Alert.alert('Print Error', error.message || 'Failed to print');
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleWiFiPrint = async () => {
+    if (!generatedBase64) return;
+
+    setIsPrinting(true);
+    try {
+      await printViaWiFi(generatedBase64);
+      setShowPrintModal(false);
+    } catch (error: any) {
+      Alert.alert('Print Error', error.message || 'Failed to print');
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!generatedBase64) return;
+
+    try {
+      await shareDesign(generatedBase64, 'tattoo-design.png');
+    } catch (error: any) {
+      Alert.alert('Share Error', error.message || 'Failed to share');
+    }
   };
 
   return (
@@ -266,30 +357,41 @@ const GenerateContent: React.FC = () => {
         )}
 
         {/* Generated Design Preview */}
-        {generatedImageUri && (
+        {generatedImageUri && generatedBase64 && (
           <View className="mb-6">
             <View className="flex-row justify-between items-center mb-3">
               <Text className="text-lg font-semibold text-gray-900">
                 Generated Design
               </Text>
-              <TouchableOpacity
-                onPress={clearAll}
-                className="bg-gray-200 px-4 py-2 rounded-lg"
-              >
-                <Text className="text-gray-700 font-semibold">Clear</Text>
-              </TouchableOpacity>
+              <View className="flex-row gap-2">
+                <TouchableOpacity
+                  onPress={handlePrint}
+                  className="bg-blue-500 px-4 py-2 rounded-lg"
+                  disabled={isPrinting}
+                >
+                  <Text className="text-white font-semibold">🖨️ Print</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={clearAll}
+                  className="bg-gray-200 px-4 py-2 rounded-lg"
+                >
+                  <Text className="text-gray-700 font-semibold">Clear</Text>
+                </TouchableOpacity>
+              </View>
             </View>
             
             <View className="bg-gray-100 rounded-xl p-4 items-center justify-center min-h-[400px]">
-              <Image
-                source={{ uri: generatedImageUri }}
-                className="w-full h-[400px] rounded-lg"
-                resizeMode="contain"
+              <LineworkViewer
+                base64Image={generatedBase64}
+                width={1200}
+                height={1200}
+                showDots={true}
+                showDashes={true}
               />
             </View>
             
             <Text className="text-sm text-gray-500 mt-3 text-center">
-              High-resolution linework design ready for tattoo application
+              High-resolution linework design ready for tattoo application (300 DPI)
             </Text>
           </View>
         )}
@@ -311,6 +413,110 @@ const GenerateContent: React.FC = () => {
             </Text>
           </View>
         )}
+
+        {/* Print Modal */}
+        <Modal
+          visible={showPrintModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowPrintModal(false)}
+        >
+          <View className="flex-1 bg-black/50 justify-end">
+            <View className="bg-white rounded-t-3xl p-6 max-h-[80%]">
+              <View className="flex-row justify-between items-center mb-4">
+                <Text className="text-2xl font-bold text-gray-900">Print Design</Text>
+                <TouchableOpacity
+                  onPress={() => setShowPrintModal(false)}
+                  className="p-2"
+                >
+                  <Text className="text-2xl text-gray-500">×</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* WiFi/AirPrint Option */}
+                {printOptions.wifi && (
+                  <TouchableOpacity
+                    onPress={handleWiFiPrint}
+                    disabled={isPrinting}
+                    className="bg-blue-500 p-4 rounded-xl mb-4"
+                  >
+                    <Text className="text-white text-center font-bold text-lg">
+                      📡 Print via WiFi/AirPrint
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Bluetooth Option */}
+                {printOptions.bluetooth && (
+                  <View className="mb-4">
+                    <View className="flex-row justify-between items-center mb-2">
+                      <Text className="text-lg font-semibold text-gray-900">
+                        Bluetooth Printers
+                      </Text>
+                      <TouchableOpacity
+                        onPress={scanForBluetoothDevices}
+                        disabled={isScanning}
+                        className="bg-gray-200 px-3 py-1 rounded-lg"
+                      >
+                        {isScanning ? (
+                          <ActivityIndicator size="small" color="#666" />
+                        ) : (
+                          <Text className="text-gray-700 font-semibold">Scan</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    {bluetoothDevices.length > 0 ? (
+                      <FlatList
+                        data={bluetoothDevices}
+                        keyExtractor={(item) => item.address}
+                        renderItem={({ item }) => (
+                          <TouchableOpacity
+                            onPress={() => handleBluetoothPrint(item.address)}
+                            disabled={isPrinting}
+                            className="bg-gray-100 p-4 rounded-xl mb-2"
+                          >
+                            <Text className="text-gray-900 font-semibold">
+                              {item.name}
+                            </Text>
+                            <Text className="text-gray-500 text-sm">
+                              {item.address}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        scrollEnabled={false}
+                      />
+                    ) : (
+                      <Text className="text-gray-500 text-center py-4">
+                        No Bluetooth printers found. Tap "Scan" to search.
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Share Option */}
+                {printOptions.share && (
+                  <TouchableOpacity
+                    onPress={handleShare}
+                    className="bg-green-500 p-4 rounded-xl mb-4"
+                  >
+                    <Text className="text-white text-center font-bold text-lg">
+                      📤 Share Design
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {isPrinting && (
+                  <View className="items-center py-4">
+                    <ActivityIndicator size="large" color="#3B82F6" />
+                    <Text className="text-gray-600 mt-2">Printing...</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </View>
   );
