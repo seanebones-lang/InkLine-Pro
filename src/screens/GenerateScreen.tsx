@@ -24,6 +24,8 @@ import {
   exportAsPNG300DPI,
   BluetoothDevice,
 } from '../services/printService';
+import { saveGenerationLocally } from '../services/historyService';
+import { supabase } from '../config/supabase';
 
 const GenerateContent: React.FC = () => {
   const [description, setDescription] = useState('');
@@ -151,6 +153,26 @@ const GenerateContent: React.FC = () => {
       setGeneratedImageUri(`data:image/png;base64,${result.base64}`);
       // Store base64 for printing/export
       setGeneratedBase64(result.base64);
+      
+      // Save to history
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await saveGenerationLocally({
+            user_id: user.id,
+            description: description.trim() || undefined,
+            image_base64: result.base64,
+            svg_content: result.svg,
+            width: 2400,
+            height: 2400,
+            dpi: 300,
+          });
+        }
+      } catch (error) {
+        console.error('Error saving to history:', error);
+        // Don't fail the generation if history save fails
+      }
+      
       setProgress('');
     } catch (error: any) {
       console.error('Generation error:', error);
