@@ -1,6 +1,7 @@
 import React, { Component, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { logger } from '../utils/logger';
+import { captureException } from '../config/sentry';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -50,9 +51,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       this.props.onError(error, errorInfo);
     }
 
-    // TODO: Send to crash reporting service (Sentry, etc.)
-    // Example:
-    // Sentry.captureException(error, { extra: errorInfo });
+    // Send to crash reporting service (Sentry)
+    captureException(error, {
+      componentStack: errorInfo.componentStack,
+      errorBoundary: true,
+    });
   }
 
   handleReset = (): void => {

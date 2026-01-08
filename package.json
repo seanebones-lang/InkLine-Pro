@@ -29,6 +29,7 @@
   "dependencies": {
     "@react-navigation/bottom-tabs": "7.0.3",
     "@react-navigation/native": "^7.0.2",
+    "@sentry/react-native": "^7.8.0",
     "@shopify/flash-list": "^2.2.0",
     "@supabase/supabase-js": "^2.90.0",
     "expo": "~52.0.0",

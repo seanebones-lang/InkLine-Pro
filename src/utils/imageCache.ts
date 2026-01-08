@@ -52,9 +52,10 @@ export async function cacheBase64Image(
 
 /**
  * Get cached image URI or create cache entry
+ * Supports both base64 strings and storage URLs
  */
 export async function getCachedImageUri(
-  base64: string,
+  imageSource: string,
   key: string
 ): Promise<string> {
   try {
@@ -67,12 +68,33 @@ export async function getCachedImageUri(
       return fileUri;
     }
     
-    // Cache the image
-    return await cacheBase64Image(base64, key);
+    // If it's a storage URL, download first
+    if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+      // Download from storage URL
+      const response = await fetch(imageSource);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const base64Data = result.includes(',') ? result.split(',')[1] : result;
+          resolve(base64Data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      return await cacheBase64Image(base64, key);
+    }
+    
+    // Cache the base64 image
+    return await cacheBase64Image(imageSource, key);
   } catch (error) {
     logger.error('Error getting cached image:', error);
-    // Fallback to data URI
-    return `data:image/png;base64,${base64}`;
+    // Fallback: return original source
+    if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+      return imageSource; // Return URL if download failed
+    }
+    return `data:image/png;base64,${imageSource}`;
   }
 }
 

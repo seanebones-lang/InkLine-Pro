@@ -18,38 +18,88 @@ const getAllowedOrigin = (): string => {
 };
 
 // Rate limiting configuration
-const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 10; // Max requests per window per user
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const ENDPOINT = 'grok-proxy';
 
-// Clean up expired rate limit entries
-function cleanupRateLimit(): void {
-  const now = Date.now();
-  for (const [key, value] of rateLimitMap.entries()) {
-    if (now > value.resetTime) {
-      rateLimitMap.delete(key);
+// Check rate limit for user using Supabase (persistent across restarts)
+async function checkRateLimit(
+  supabaseClient: ReturnType<typeof createClient>,
+  userId: string
+): Promise<boolean> {
+  try {
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - RATE_LIMIT_WINDOW_MS);
+    
+    // Clean up expired entries
+    await supabaseClient
+      .from('rate_limits')
+      .delete()
+      .lt('window_end', windowStart.toISOString());
+    
+    // Get current rate limit for user
+    const { data: existingLimit, error: fetchError } = await supabaseClient
+      .from('rate_limits')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('endpoint', ENDPOINT)
+      .gte('window_end', now.toISOString())
+      .order('window_end', { ascending: false })
+      .limit(1)
+      .single();
+    
+    if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('Error checking rate limit:', fetchError);
+      // On error, allow request (fail open for reliability)
+      return true;
     }
-  }
-}
-
-// Check rate limit for user
-function checkRateLimit(userId: string): boolean {
-  cleanupRateLimit();
-  
-  const now = Date.now();
-  const userLimit = rateLimitMap.get(userId);
-  
-  if (!userLimit || now > userLimit.resetTime) {
-    rateLimitMap.set(userId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    
+    if (!existingLimit) {
+      // No existing limit, create new window
+      const windowEnd = new Date(now.getTime() + RATE_LIMIT_WINDOW_MS);
+      const { error: insertError } = await supabaseClient
+        .from('rate_limits')
+        .insert({
+          user_id: userId,
+          endpoint: ENDPOINT,
+          request_count: 1,
+          window_start: now.toISOString(),
+          window_end: windowEnd.toISOString(),
+        });
+      
+      if (insertError) {
+        console.error('Error creating rate limit:', insertError);
+        return true; // Fail open
+      }
+      
+      return true;
+    }
+    
+    // Check if limit exceeded
+    if (existingLimit.request_count >= RATE_LIMIT_MAX_REQUESTS) {
+      return false;
+    }
+    
+    // Increment count
+    const { error: updateError } = await supabaseClient
+      .from('rate_limits')
+      .update({
+        request_count: existingLimit.request_count + 1,
+        updated_at: now.toISOString(),
+      })
+      .eq('id', existingLimit.id);
+    
+    if (updateError) {
+      console.error('Error updating rate limit:', updateError);
+      return true; // Fail open
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error in checkRateLimit:', error);
+    // Fail open for reliability
     return true;
   }
-  
-  if (userLimit.count >= RATE_LIMIT_MAX_REQUESTS) {
-    return false;
-  }
-  
-  userLimit.count++;
-  return true;
 }
 
 // Input sanitization
@@ -158,8 +208,8 @@ serve(async (req) => {
       );
     }
 
-    // Rate limiting check
-    if (!checkRateLimit(user.id)) {
+    // Rate limiting check (using Supabase for persistence)
+    if (!(await checkRateLimit(supabaseClient, user.id))) {
       return new Response(
         JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
         {

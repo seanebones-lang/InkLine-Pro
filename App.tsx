@@ -11,15 +11,24 @@ import { ThemeProvider } from './src/contexts/ThemeContext';
 import { TabNavigator } from './src/navigation/TabNavigator';
 import { startHealthChecks, stopHealthChecks } from './src/utils/healthCheck';
 import { logger } from './src/utils/logger';
+import { initSentry } from './src/config/sentry';
+import { startMonitoring, stopMonitoring } from './src/utils/monitoring';
 
 export default function App() {
   useEffect(() => {
+    // Initialize Sentry for error tracking
+    initSentry(process.env.EXPO_PUBLIC_SENTRY_DSN);
+    
     // Start health checks on app launch
     startHealthChecks(60000); // Check every minute
+    
+    // Start performance monitoring
+    startMonitoring(300000); // Check every 5 minutes
 
     // Cleanup on unmount
     return () => {
       stopHealthChecks();
+      stopMonitoring();
     };
   }, []);
 

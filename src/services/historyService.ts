@@ -3,14 +3,23 @@ import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { logger } from '../utils/logger';
 import { supabaseCircuitBreaker } from '../utils/circuitBreaker';
+import {
+  uploadImageToStorage,
+  uploadImageFromUri,
+  downloadImageFromStorage,
+  deleteImageFromStorage,
+  generateThumbnail,
+} from './storageService';
 
 export interface TattooGeneration {
   id: string;
   user_id: string;
   description?: string;
-  image_base64?: string;
+  image_base64?: string; // Legacy: kept for backward compatibility
+  image_storage_path?: string; // New: Supabase Storage path
   svg_content?: string;
-  thumbnail_base64?: string;
+  thumbnail_base64?: string; // Legacy: kept for backward compatibility
+  thumbnail_storage_path?: string; // New: Supabase Storage path for thumbnail
   width: number;
   height: number;
   dpi: number;
@@ -35,15 +44,17 @@ async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!db) {
     db = await SQLite.openDatabaseAsync('tattoo_history.db');
     
-    // Create table if it doesn't exist
+    // Create table if it doesn't exist (with new columns for storage)
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS tattoo_generations (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         description TEXT,
         image_base64 TEXT,
+        image_storage_path TEXT,
         svg_content TEXT,
         thumbnail_base64 TEXT,
+        thumbnail_storage_path TEXT,
         width INTEGER DEFAULT 2400,
         height INTEGER DEFAULT 2400,
         dpi INTEGER DEFAULT 300,
@@ -56,12 +67,23 @@ async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       CREATE INDEX IF NOT EXISTS idx_synced ON tattoo_generations(synced);
     `);
 
+    // Migrate: Add new columns if they don't exist (for existing databases)
+    try {
+      await db.execAsync(`
+        ALTER TABLE tattoo_generations ADD COLUMN image_storage_path TEXT;
+        ALTER TABLE tattoo_generations ADD COLUMN thumbnail_storage_path TEXT;
+      `);
+    } catch (error) {
+      // Columns already exist, ignore
+      logger.debug('Migration columns already exist or migration not needed');
+    }
+
     // Prepare statements for better performance
     try {
       preparedStatements.insert = await db.prepareAsync(`
         INSERT INTO tattoo_generations 
-        (id, user_id, description, image_base64, svg_content, thumbnail_base64, width, height, dpi, created_at, updated_at, synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        (id, user_id, description, image_base64, image_storage_path, svg_content, thumbnail_base64, thumbnail_storage_path, width, height, dpi, created_at, updated_at, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       `);
       
       preparedStatements.selectById = await db.prepareAsync(`
@@ -91,28 +113,60 @@ async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 
 /**
  * Save generation to local database (offline-first)
+ * Now uses Supabase Storage for images instead of base64 in database
  */
-export async function saveGenerationLocally(generation: Omit<TattooGeneration, 'id' | 'created_at' | 'updated_at'>): Promise<string> {
+export async function saveGenerationLocally(
+  generation: Omit<TattooGeneration, 'id' | 'created_at' | 'updated_at'>
+): Promise<string> {
   const database = await getDatabase();
   const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const now = new Date().toISOString();
   
-  // Create thumbnail from base64 (smaller version for list view)
-  let thumbnail = generation.thumbnail_base64;
-  if (!thumbnail && generation.image_base64) {
-    // Use first 1000 chars as thumbnail (simplified)
-    thumbnail = generation.image_base64.substring(0, 1000);
+  let imageStoragePath: string | null = null;
+  let thumbnailStoragePath: string | null = null;
+  let thumbnailBase64: string | null = null;
+  
+  // Upload images to Supabase Storage if base64 is provided
+  if (generation.image_base64) {
+    try {
+      // Upload full image to storage
+      imageStoragePath = await uploadImageToStorage(
+        generation.image_base64,
+        generation.user_id,
+        id,
+        false
+      );
+      
+      // Generate and upload thumbnail
+      const thumbnail = await generateThumbnail(generation.image_base64, 400);
+      if (thumbnail) {
+        thumbnailStoragePath = await uploadImageToStorage(
+          thumbnail,
+          generation.user_id,
+          `${id}_thumb`,
+          true
+        );
+        // Keep thumbnail base64 for offline viewing (small, ~50KB)
+        thumbnailBase64 = thumbnail;
+      }
+    } catch (error) {
+      logger.error('Error uploading images to storage, falling back to base64:', error);
+      // Fallback: Keep base64 if storage upload fails (backward compatibility)
+    }
   }
-
+  
   // Use prepared statement if available, otherwise fallback to regular query
   if (preparedStatements.insert) {
     await preparedStatements.insert.executeAsync([
       id,
       generation.user_id,
       generation.description || null,
-      generation.image_base64 || null,
+      // Store base64 only if storage upload failed (backward compatibility)
+      imageStoragePath ? null : (generation.image_base64 || null),
+      imageStoragePath || null,
       generation.svg_content || null,
-      thumbnail || null,
+      thumbnailBase64 || generation.thumbnail_base64 || null,
+      thumbnailStoragePath || null,
       generation.width,
       generation.height,
       generation.dpi,
@@ -122,15 +176,17 @@ export async function saveGenerationLocally(generation: Omit<TattooGeneration, '
   } else {
     await database.runAsync(
       `INSERT INTO tattoo_generations 
-       (id, user_id, description, image_base64, svg_content, thumbnail_base64, width, height, dpi, created_at, updated_at, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+       (id, user_id, description, image_base64, image_storage_path, svg_content, thumbnail_base64, thumbnail_storage_path, width, height, dpi, created_at, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [
         id,
         generation.user_id,
         generation.description || null,
-        generation.image_base64 || null,
+        imageStoragePath ? null : (generation.image_base64 || null),
+        imageStoragePath || null,
         generation.svg_content || null,
-        thumbnail || null,
+        thumbnailBase64 || generation.thumbnail_base64 || null,
+        thumbnailStoragePath || null,
         generation.width,
         generation.height,
         generation.dpi,
@@ -141,7 +197,14 @@ export async function saveGenerationLocally(generation: Omit<TattooGeneration, '
   }
 
   // Try to sync to Supabase in background
-  syncToSupabase(id, { ...generation, id, created_at: now, updated_at: now }).catch((error) => {
+  syncToSupabase(id, {
+    ...generation,
+    id,
+    image_storage_path: imageStoragePath || undefined,
+    thumbnail_storage_path: thumbnailStoragePath || undefined,
+    created_at: now,
+    updated_at: now,
+  }).catch((error) => {
     logger.error('Error syncing to Supabase in background:', error);
   });
 
@@ -165,8 +228,9 @@ async function syncToSupabase(id: string, generation: TattooGeneration): Promise
             id,
             user_id: user.id,
             description: generation.description,
-            // Store only thumbnail in Supabase to save space, full image stays local
-            thumbnail_base64: generation.thumbnail_base64,
+            // Store storage paths, not base64 (saves database space)
+            image_storage_path: generation.image_storage_path,
+            thumbnail_storage_path: generation.thumbnail_storage_path,
             svg_content: generation.svg_content,
             width: generation.width,
             height: generation.height,
@@ -303,30 +367,109 @@ export async function getGenerations(
 }
 
 /**
- * Get full image data from local storage
+ * Get full image data (downloads from storage if path exists, falls back to base64)
  */
 export async function getGenerationImage(id: string): Promise<string | null> {
   const database = await getDatabase();
   
+  let generation: TattooGeneration | null = null;
+  
   if (preparedStatements.selectById) {
     const result = await preparedStatements.selectById.executeAsync([id]);
-    const rows = await result.getAllAsync<{ image_base64: string }>();
-    return rows[0]?.image_base64 || null;
+    const rows = await result.getAllAsync<TattooGeneration>();
+    generation = rows[0] || null;
   } else {
-    const result = await database.getFirstAsync<{ image_base64: string }>(
-      'SELECT image_base64 FROM tattoo_generations WHERE id = ?',
+    generation = await database.getFirstAsync<TattooGeneration>(
+      'SELECT * FROM tattoo_generations WHERE id = ?',
       [id]
     );
-    return result?.image_base64 || null;
   }
+  
+  if (!generation) return null;
+  
+  // Priority: Try storage path first (new format)
+  if (generation.image_storage_path) {
+    try {
+      const base64 = await downloadImageFromStorage(generation.image_storage_path);
+      if (base64) return base64;
+    } catch (error) {
+      logger.warn('Error downloading from storage, falling back to base64:', error);
+    }
+  }
+  
+  // Fallback: Use base64 (legacy format or storage unavailable)
+  return generation.image_base64 || null;
 }
 
 /**
- * Delete generation
+ * Get thumbnail (downloads from storage if path exists, falls back to base64)
+ */
+export async function getGenerationThumbnail(id: string): Promise<string | null> {
+  const database = await getDatabase();
+  
+  let generation: TattooGeneration | null = null;
+  
+  if (preparedStatements.selectById) {
+    const result = await preparedStatements.selectById.executeAsync([id]);
+    const rows = await result.getAllAsync<TattooGeneration>();
+    generation = rows[0] || null;
+  } else {
+    generation = await database.getFirstAsync<TattooGeneration>(
+      'SELECT * FROM tattoo_generations WHERE id = ?',
+      [id]
+    );
+  }
+  
+  if (!generation) return null;
+  
+  // Priority: Try storage path first (new format)
+  if (generation.thumbnail_storage_path) {
+    try {
+      const base64 = await downloadImageFromStorage(generation.thumbnail_storage_path);
+      if (base64) return base64;
+    } catch (error) {
+      logger.warn('Error downloading thumbnail from storage, falling back to base64:', error);
+    }
+  }
+  
+  // Fallback: Use base64 (legacy format or storage unavailable)
+  return generation.thumbnail_base64 || null;
+}
+
+/**
+ * Delete generation (including storage files)
  */
 export async function deleteGeneration(id: string): Promise<void> {
-  // Delete from local
   const database = await getDatabase();
+  
+  // Get generation to delete storage files
+  let generation: TattooGeneration | null = null;
+  if (preparedStatements.selectById) {
+    const result = await preparedStatements.selectById.executeAsync([id]);
+    const rows = await result.getAllAsync<TattooGeneration>();
+    generation = rows[0] || null;
+  } else {
+    generation = await database.getFirstAsync<TattooGeneration>(
+      'SELECT * FROM tattoo_generations WHERE id = ?',
+      [id]
+    );
+  }
+  
+  // Delete from storage if paths exist
+  if (generation) {
+    if (generation.image_storage_path) {
+      await deleteImageFromStorage(generation.image_storage_path, false).catch((error) => {
+        logger.error('Error deleting image from storage:', error);
+      });
+    }
+    if (generation.thumbnail_storage_path) {
+      await deleteImageFromStorage(generation.thumbnail_storage_path, true).catch((error) => {
+        logger.error('Error deleting thumbnail from storage:', error);
+      });
+    }
+  }
+  
+  // Delete from local database
   if (preparedStatements.delete) {
     await preparedStatements.delete.executeAsync([id]);
   } else {

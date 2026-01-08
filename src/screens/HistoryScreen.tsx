@@ -53,16 +53,42 @@ const HistoryItem = React.memo<HistoryItemProps>(({ item, onPress, onDelete, onS
         // Check if cancelled
         if (abortController.signal.aborted) return;
 
+        // Priority 1: Try thumbnail from storage path (new format)
+        if (item.thumbnail_storage_path) {
+          const { getCachedImageUri } = await import('../utils/imageCache');
+          const cachedUri = await getCachedImageUri(item.thumbnail_storage_path, `thumb_${item.id}`);
+          if (cachedUri && !abortController.signal.aborted) {
+            setImageUri(cachedUri);
+            return;
+          }
+        }
+        
+        // Priority 2: Try thumbnail base64 (legacy format)
         if (item.thumbnail_base64) {
           setImageUri(`data:image/png;base64,${item.thumbnail_base64}`);
-        } else if (item.image_base64) {
-          setImageUri(`data:image/png;base64,${item.image_base64}`);
-        } else {
-          // Try to get full image from local storage
-          const fullImage = await getGenerationImage(item.id);
-          if (fullImage && !abortController.signal.aborted) {
-            setImageUri(`data:image/png;base64,${fullImage}`);
+          return;
+        }
+        
+        // Priority 3: Try full image from storage path (new format)
+        if (item.image_storage_path) {
+          const { getCachedImageUri } = await import('../utils/imageCache');
+          const cachedUri = await getCachedImageUri(item.image_storage_path, item.id);
+          if (cachedUri && !abortController.signal.aborted) {
+            setImageUri(cachedUri);
+            return;
           }
+        }
+        
+        // Priority 4: Try full image base64 (legacy format)
+        if (item.image_base64) {
+          setImageUri(`data:image/png;base64,${item.image_base64}`);
+          return;
+        }
+        
+        // Priority 5: Try to get full image from local storage
+        const fullImage = await getGenerationImage(item.id);
+        if (fullImage && !abortController.signal.aborted) {
+          setImageUri(`data:image/png;base64,${fullImage}`);
         }
       } catch (error) {
         if (!abortController.signal.aborted) {
