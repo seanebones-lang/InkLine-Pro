@@ -3,9 +3,22 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const GROK_API_URL = 'https://api.x.ai/v1';
+
+// CORS configuration - use environment variable for allowed origin in production
+const getAllowedOrigin = (): string => {
+  const allowedOrigin = Deno.env.get('ALLOWED_ORIGIN');
+  if (allowedOrigin) {
+    return allowedOrigin;
+  }
+  // Fallback: Allow all in development (should be restricted in production)
+  return Deno.env.get('ENVIRONMENT') === 'production' ? '' : '*';
+};
+
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': getAllowedOrigin(),
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400', // 24 hours
 };
 
 interface GrokRequest {
@@ -149,8 +162,13 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error('Error in grok-proxy:', error);
+    // Don't expose internal error details in production
+    const errorMessage = Deno.env.get('ENVIRONMENT') === 'production'
+      ? 'Internal server error'
+      : error instanceof Error ? error.message : 'Unknown error';
+    
     return new Response(
-      JSON.stringify({ error: 'Internal server error', message: error.message }),
+      JSON.stringify({ error: 'Internal server error', message: errorMessage }),
       {
         status: 500,
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },

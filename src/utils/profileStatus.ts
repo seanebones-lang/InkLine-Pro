@@ -1,6 +1,7 @@
 import { User } from '@supabase/supabase-js';
 import { CustomerInfo } from 'react-native-purchases';
 import { supabase } from '../config/supabase';
+import { logger } from './logger';
 
 export interface ProfileStatus {
   isAuthenticated: boolean;
@@ -62,7 +63,7 @@ export const getProfileStatus = async (
       }
     }
   } catch (error) {
-    console.error('Error fetching profile:', error);
+    logger.error('Error fetching profile:', error);
   }
 
   // Determine subscription tier from RevenueCat
@@ -109,7 +110,7 @@ export const updateProfileStatus = async (
     .eq('id', userId);
 
   if (error) {
-    console.error('Error updating profile:', error);
+    logger.error('Error updating profile:', error);
     throw error;
   }
 };

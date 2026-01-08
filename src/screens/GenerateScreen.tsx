@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   FlatList,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { generateTattooDesignWithLineart, processImageForAPI } from '../services/aiService';
 import { LineworkViewer } from '../components/LineworkViewer';
@@ -26,6 +27,7 @@ import {
 } from '../services/printService';
 import { saveGenerationLocally } from '../services/historyService';
 import { supabase } from '../config/supabase';
+import { logger } from '../utils/logger';
 
 const GenerateContent: React.FC = () => {
   const [description, setDescription] = useState('');
@@ -41,9 +43,28 @@ const GenerateContent: React.FC = () => {
   const [bluetoothDevices, setBluetoothDevices] = useState<BluetoothDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [printOptions, setPrintOptions] = useState(getAvailablePrintOptions());
 
-  const requestImagePickerPermissions = async () => {
+  // Memoize print options (doesn't change during component lifetime)
+  const printOptions = useMemo(() => getAvailablePrintOptions(), []);
+
+  // Memory leak fix: Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Cleanup base64 images from memory
+      setGeneratedBase64(null);
+      setGeneratedImageUri(null);
+      setGeneratedSvg(null);
+      
+      // Cleanup temporary image files
+      if (selectedImage?.startsWith('file://')) {
+        FileSystem.deleteAsync(selectedImage, { idempotent: true }).catch(() => {
+          // Ignore errors during cleanup
+        });
+      }
+    };
+  }, [selectedImage]);
+
+  const requestImagePickerPermissions = useCallback(async () => {
     const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
     const { status: libraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
@@ -55,9 +76,9 @@ const GenerateContent: React.FC = () => {
       return false;
     }
     return true;
-  };
+  }, []);
 
-  const pickImageFromGallery = async () => {
+  const pickImageFromGallery = useCallback(async () => {
     const hasPermission = await requestImagePickerPermissions();
     if (!hasPermission) return;
 
@@ -74,14 +95,15 @@ const GenerateContent: React.FC = () => {
         setSelectedImage(result.assets[0].uri);
         setGeneratedSvg(null); // Clear previous result
         setGeneratedImageUri(null);
+        setGeneratedBase64(null);
       }
     } catch (error) {
-      console.error('Error picking image:', error);
+      logger.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
-  };
+  }, []);
 
-  const takePhoto = async () => {
+  const takePhoto = useCallback(async () => {
     const hasPermission = await requestImagePickerPermissions();
     if (!hasPermission) return;
 
@@ -96,14 +118,15 @@ const GenerateContent: React.FC = () => {
         setSelectedImage(result.assets[0].uri);
         setGeneratedSvg(null); // Clear previous result
         setGeneratedImageUri(null);
+        setGeneratedBase64(null);
       }
     } catch (error) {
-      console.error('Error taking photo:', error);
+      logger.error('Error taking photo:', error);
       Alert.alert('Error', 'Failed to take photo. Please try again.');
     }
-  };
+  }, []);
 
-  const validateInputs = (): boolean => {
+  const validateInputs = useCallback((): boolean => {
     if (!description.trim() && !selectedImage) {
       Alert.alert(
         'Input Required',
@@ -121,9 +144,9 @@ const GenerateContent: React.FC = () => {
     }
 
     return true;
-  };
+  }, [description, selectedImage]);
 
-  const handleGenerate = async () => {
+  const handleGenerate = useCallback(async () => {
     if (!validateInputs()) return;
 
     setIsGenerating(true);
@@ -169,13 +192,13 @@ const GenerateContent: React.FC = () => {
           });
         }
       } catch (error) {
-        console.error('Error saving to history:', error);
+        logger.error('Error saving to history:', error);
         // Don't fail the generation if history save fails
       }
       
       setProgress('');
     } catch (error: any) {
-      console.error('Generation error:', error);
+      logger.error('Generation error:', error);
       Alert.alert(
         'Generation Failed',
         error.message || 'Failed to generate tattoo design. Please try again.'
@@ -184,19 +207,19 @@ const GenerateContent: React.FC = () => {
     } finally {
       setIsGenerating(false);
     }
-  };
+  }, [description, selectedImage]);
 
-  const clearAll = () => {
+  const clearAll = useCallback(() => {
     setDescription('');
     setSelectedImage(null);
     setGeneratedSvg(null);
     setGeneratedImageUri(null);
     setGeneratedBase64(null);
     setProgress('');
-  };
+  }, []);
 
   // Print functions
-  const handlePrint = () => {
+  const handlePrint = useCallback(() => {
     if (!generatedBase64) {
       Alert.alert('Error', 'No design to print');
       return;
@@ -205,9 +228,9 @@ const GenerateContent: React.FC = () => {
     if (printOptions.bluetooth) {
       scanForBluetoothDevices();
     }
-  };
+  }, [generatedBase64, printOptions.bluetooth]);
 
-  const scanForBluetoothDevices = async () => {
+  const scanForBluetoothDevices = useCallback(async () => {
     setIsScanning(true);
     try {
       const devices = await scanBluetoothPrinters();
@@ -220,9 +243,9 @@ const GenerateContent: React.FC = () => {
     } finally {
       setIsScanning(false);
     }
-  };
+  }, []);
 
-  const handleBluetoothPrint = async (deviceAddress: string) => {
+  const handleBluetoothPrint = useCallback(async (deviceAddress: string) => {
     if (!generatedBase64) return;
 
     setIsPrinting(true);
@@ -237,9 +260,9 @@ const GenerateContent: React.FC = () => {
     } finally {
       setIsPrinting(false);
     }
-  };
+  }, [generatedBase64]);
 
-  const handleWiFiPrint = async () => {
+  const handleWiFiPrint = useCallback(async () => {
     if (!generatedBase64) return;
 
     setIsPrinting(true);
@@ -251,9 +274,9 @@ const GenerateContent: React.FC = () => {
     } finally {
       setIsPrinting(false);
     }
-  };
+  }, [generatedBase64]);
 
-  const handleShare = async () => {
+  const handleShare = useCallback(async () => {
     if (!generatedBase64) return;
 
     try {
@@ -261,7 +284,7 @@ const GenerateContent: React.FC = () => {
     } catch (error: any) {
       Alert.alert('Share Error', error.message || 'Failed to share');
     }
-  };
+  }, [generatedBase64]);
 
   return (
     <View className="flex-1 bg-white">
@@ -271,7 +294,7 @@ const GenerateContent: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View className="mb-6">
+        <View className="mb-6" accessible={true} accessibilityRole="header">
           <Text className="text-3xl font-bold text-gray-900 mb-2">
             Generate Tattoo Design
           </Text>
@@ -282,7 +305,7 @@ const GenerateContent: React.FC = () => {
 
         {/* Text Input */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-gray-900 mb-2">
+          <Text className="text-lg font-semibold text-gray-900 mb-2" accessibilityRole="text">
             Description
           </Text>
           <TextInput
@@ -295,6 +318,9 @@ const GenerateContent: React.FC = () => {
             numberOfLines={4}
             textAlignVertical="top"
             editable={!isGenerating}
+            accessibilityLabel="Tattoo design description input"
+            accessibilityHint="Enter a detailed description of your tattoo design idea"
+            accessibilityRole="none"
           />
           <Text className="text-sm text-gray-500 mt-2">
             Be specific about style, elements, and placement
@@ -313,11 +339,16 @@ const GenerateContent: React.FC = () => {
                 source={{ uri: selectedImage }}
                 className="w-full h-64 rounded-xl mb-3"
                 resizeMode="cover"
+                accessibilityLabel="Selected reference image"
+                accessibilityRole="image"
               />
               <TouchableOpacity
                 onPress={() => setSelectedImage(null)}
                 className="bg-red-500 p-3 rounded-xl"
                 disabled={isGenerating}
+                accessibilityRole="button"
+                accessibilityLabel="Remove selected image"
+                accessibilityHint="Removes the currently selected reference image"
               >
                 <Text className="text-white text-center font-semibold">
                   Remove Image
@@ -330,6 +361,9 @@ const GenerateContent: React.FC = () => {
                 onPress={pickImageFromGallery}
                 className="flex-1 bg-blue-500 p-4 rounded-xl"
                 disabled={isGenerating}
+                accessibilityRole="button"
+                accessibilityLabel="Pick image from gallery"
+                accessibilityHint="Opens your photo library to select a reference image"
               >
                 <Text className="text-white text-center font-semibold">
                   📷 Gallery
@@ -340,6 +374,9 @@ const GenerateContent: React.FC = () => {
                 onPress={takePhoto}
                 className="flex-1 bg-green-500 p-4 rounded-xl"
                 disabled={isGenerating}
+                accessibilityRole="button"
+                accessibilityLabel="Take a photo"
+                accessibilityHint="Opens the camera to take a new reference photo"
               >
                 <Text className="text-white text-center font-semibold">
                   📸 Camera
@@ -356,6 +393,10 @@ const GenerateContent: React.FC = () => {
             isGenerating ? 'bg-gray-400' : 'bg-purple-600'
           }`}
           disabled={isGenerating}
+          accessibilityRole="button"
+          accessibilityLabel={isGenerating ? progress || 'Generating design' : 'Generate tattoo design'}
+          accessibilityHint="Starts the AI generation process for your tattoo design"
+          accessibilityState={{ disabled: isGenerating }}
         >
           {isGenerating ? (
             <View className="flex-row items-center justify-center">
@@ -390,19 +431,31 @@ const GenerateContent: React.FC = () => {
                   onPress={handlePrint}
                   className="bg-blue-500 px-4 py-2 rounded-lg"
                   disabled={isPrinting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Print design"
+                  accessibilityHint="Opens print options to print the generated design"
+                  accessibilityState={{ disabled: isPrinting }}
                 >
                   <Text className="text-white font-semibold">🖨️ Print</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={clearAll}
                   className="bg-gray-200 px-4 py-2 rounded-lg"
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear all"
+                  accessibilityHint="Clears the description, image, and generated design"
                 >
                   <Text className="text-gray-700 font-semibold">Clear</Text>
                 </TouchableOpacity>
               </View>
             </View>
             
-            <View className="bg-gray-100 rounded-xl p-4 items-center justify-center min-h-[400px]">
+            <View 
+              className="bg-gray-100 rounded-xl p-4 items-center justify-center min-h-[400px]"
+              accessible={true}
+              accessibilityLabel="Generated tattoo design preview"
+              accessibilityRole="image"
+            >
               <LineworkViewer
                 base64Image={generatedBase64}
                 width={1200}
@@ -412,7 +465,10 @@ const GenerateContent: React.FC = () => {
               />
             </View>
             
-            <Text className="text-sm text-gray-500 mt-3 text-center">
+            <Text 
+              className="text-sm text-gray-500 mt-3 text-center"
+              accessibilityRole="text"
+            >
               High-resolution linework design ready for tattoo application (300 DPI)
             </Text>
           </View>
@@ -446,10 +502,15 @@ const GenerateContent: React.FC = () => {
           <View className="flex-1 bg-black/50 justify-end">
             <View className="bg-white rounded-t-3xl p-6 max-h-[80%]">
               <View className="flex-row justify-between items-center mb-4">
-                <Text className="text-2xl font-bold text-gray-900">Print Design</Text>
+                <Text className="text-2xl font-bold text-gray-900" accessibilityRole="header">
+                  Print Design
+                </Text>
                 <TouchableOpacity
                   onPress={() => setShowPrintModal(false)}
                   className="p-2"
+                  accessibilityRole="button"
+                  accessibilityLabel="Close print modal"
+                  accessibilityHint="Closes the print options modal"
                 >
                   <Text className="text-2xl text-gray-500">×</Text>
                 </TouchableOpacity>
@@ -462,6 +523,10 @@ const GenerateContent: React.FC = () => {
                     onPress={handleWiFiPrint}
                     disabled={isPrinting}
                     className="bg-blue-500 p-4 rounded-xl mb-4"
+                    accessibilityRole="button"
+                    accessibilityLabel="Print via WiFi or AirPrint"
+                    accessibilityHint="Prints the design using WiFi or AirPrint compatible printers"
+                    accessibilityState={{ disabled: isPrinting }}
                   >
                     <Text className="text-white text-center font-bold text-lg">
                       📡 Print via WiFi/AirPrint
@@ -480,6 +545,10 @@ const GenerateContent: React.FC = () => {
                         onPress={scanForBluetoothDevices}
                         disabled={isScanning}
                         className="bg-gray-200 px-3 py-1 rounded-lg"
+                        accessibilityRole="button"
+                        accessibilityLabel={isScanning ? 'Scanning for Bluetooth printers' : 'Scan for Bluetooth printers'}
+                        accessibilityHint="Scans for available Bluetooth printers nearby"
+                        accessibilityState={{ disabled: isScanning }}
                       >
                         {isScanning ? (
                           <ActivityIndicator size="small" color="#666" />
@@ -498,6 +567,10 @@ const GenerateContent: React.FC = () => {
                             onPress={() => handleBluetoothPrint(item.address)}
                             disabled={isPrinting}
                             className="bg-gray-100 p-4 rounded-xl mb-2"
+                            accessibilityRole="button"
+                            accessibilityLabel={`Print to ${item.name}`}
+                            accessibilityHint={`Sends the design to ${item.name} Bluetooth printer`}
+                            accessibilityState={{ disabled: isPrinting }}
                           >
                             <Text className="text-gray-900 font-semibold">
                               {item.name}
@@ -522,6 +595,9 @@ const GenerateContent: React.FC = () => {
                   <TouchableOpacity
                     onPress={handleShare}
                     className="bg-green-500 p-4 rounded-xl mb-4"
+                    accessibilityRole="button"
+                    accessibilityLabel="Share design"
+                    accessibilityHint="Opens the share sheet to share the design with other apps"
                   >
                     <Text className="text-white text-center font-bold text-lg">
                       📤 Share Design

@@ -1,5 +1,6 @@
 import Purchases, { CustomerInfo, PurchasesPackage, PurchasesOffering } from 'react-native-purchases';
 import { Platform } from 'react-native';
+import { logger } from '../utils/logger';
 
 // RevenueCat API Keys
 const REVENUECAT_API_KEY_ANDROID = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY_ANDROID || '';
@@ -13,7 +14,7 @@ export const initializeRevenueCat = async (userId?: string): Promise<void> => {
   const apiKey = Platform.OS === 'ios' ? REVENUECAT_API_KEY_IOS : REVENUECAT_API_KEY_ANDROID;
   
   if (!apiKey) {
-    console.warn('RevenueCat API key not configured');
+    logger.warn('RevenueCat API key not configured');
     return;
   }
 
@@ -35,7 +36,7 @@ export const getOfferings = async (): Promise<PurchasesOffering | null> => {
     const offerings = await Purchases.getOfferings();
     return offerings.current;
   } catch (error) {
-    console.error('Error fetching offerings:', error);
+    logger.error('Error fetching offerings:', error);
     return null;
   }
 };
@@ -44,7 +45,7 @@ export const getCustomerInfo = async (): Promise<CustomerInfo | null> => {
   try {
     return await Purchases.getCustomerInfo();
   } catch (error) {
-    console.error('Error fetching customer info:', error);
+    logger.error('Error fetching customer info:', error);
     return null;
   }
 };
@@ -54,7 +55,7 @@ export const purchasePackage = async (pkg: PurchasesPackage): Promise<CustomerIn
     const { customerInfo } = await Purchases.purchasePackage(pkg);
     return customerInfo;
   } catch (error) {
-    console.error('Error purchasing package:', error);
+    logger.error('Error purchasing package:', error);
     return null;
   }
 };
@@ -64,7 +65,7 @@ export const restorePurchases = async (): Promise<CustomerInfo | null> => {
     const customerInfo = await Purchases.restorePurchases();
     return customerInfo;
   } catch (error) {
-    console.error('Error restoring purchases:', error);
+    logger.error('Error restoring purchases:', error);
     return null;
   }
 };

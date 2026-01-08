@@ -1,6 +1,7 @@
 import { supabase } from '../config/supabase';
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
+import { logger } from '../utils/logger';
 
 export interface TattooGeneration {
   id: string;
@@ -81,7 +82,9 @@ export async function saveGenerationLocally(generation: Omit<TattooGeneration, '
   );
 
   // Try to sync to Supabase in background
-  syncToSupabase(id, { ...generation, id, created_at: now, updated_at: now }).catch(console.error);
+  syncToSupabase(id, { ...generation, id, created_at: now, updated_at: now }).catch((error) => {
+    logger.error('Error syncing to Supabase in background:', error);
+  });
 
   return id;
 }
@@ -120,7 +123,7 @@ async function syncToSupabase(id: string, generation: TattooGeneration): Promise
       );
     }
   } catch (error) {
-    console.error('Error syncing to Supabase:', error);
+    logger.error('Error syncing to Supabase:', error);
   }
 }
 
@@ -158,7 +161,7 @@ export async function getGenerationsFromSupabase(
       hasMore: (data?.length || 0) === pageSize,
     };
   } catch (error) {
-    console.error('Error fetching from Supabase:', error);
+    logger.error('Error fetching from Supabase:', error);
     return { data: [], hasMore: false };
   }
 }
@@ -199,7 +202,7 @@ export async function getGenerations(
       return result;
     }
   } catch (error) {
-    console.log('Supabase unavailable, using local storage');
+    logger.info('Supabase unavailable, using local storage', error);
   }
 
   // Fallback to local
@@ -239,7 +242,7 @@ export async function deleteGeneration(id: string): Promise<void> {
       .delete()
       .eq('id', id);
   } catch (error) {
-    console.error('Error deleting from Supabase:', error);
+    logger.error('Error deleting from Supabase:', error);
   }
 }
 

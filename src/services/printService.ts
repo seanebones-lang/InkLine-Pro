@@ -2,9 +2,10 @@ import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
 import { Platform, Share, Alert } from 'react-native';
 import { generateEnhancedSVG } from '../components/LineworkViewer';
+import { logger } from '../utils/logger';
 
 // Type definitions for Bluetooth printer
-interface BluetoothDevice {
+export interface BluetoothDevice {
   address: string;
   name: string;
 }
@@ -16,7 +17,7 @@ try {
     BluetoothEscposPrinter = require('react-native-bluetooth-escpos-printer');
   }
 } catch (error) {
-  console.warn('Bluetooth printer library not available:', error);
+  logger.warn('Bluetooth printer library not available:', error);
 }
 
 /**
@@ -66,7 +67,7 @@ export async function svgToPNG300DPI(
     // Return the original base64 if available, or use PDF as fallback
     return pdfUri;
   } catch (error) {
-    console.error('Error converting SVG to PNG:', error);
+    logger.error('Error converting SVG to PNG:', error);
     throw new Error('Failed to convert SVG to PNG');
   }
 }
@@ -86,7 +87,7 @@ export async function exportAsPNG300DPI(
     // Return as data URI for Bluetooth printing
     return `data:image/png;base64,${base64Image}`;
   } catch (error) {
-    console.error('Error exporting PNG:', error);
+    logger.error('Error exporting PNG:', error);
     throw error;
   }
 }
@@ -111,7 +112,7 @@ export async function scanBluetoothPrinters(): Promise<BluetoothDevice[]> {
       name: device.name || 'Unknown Printer',
     }));
   } catch (error) {
-    console.error('Error scanning Bluetooth printers:', error);
+    logger.error('Error scanning Bluetooth printers:', error);
     throw new Error('Failed to scan for Bluetooth printers');
   }
 }
@@ -152,7 +153,7 @@ export async function printViaBluetooth(
     // Disconnect
     await BluetoothEscposPrinter.disconnect();
   } catch (error) {
-    console.error('Error printing via Bluetooth:', error);
+    logger.error('Error printing via Bluetooth:', error);
     throw new Error('Failed to print via Bluetooth');
   }
 }
@@ -208,7 +209,7 @@ export async function printViaWiFi(
       base64: false,
     });
   } catch (error) {
-    console.error('Error printing via WiFi:', error);
+    logger.error('Error printing via WiFi:', error);
     throw new Error('Failed to print via WiFi/AirPrint');
   }
 }
@@ -233,7 +234,7 @@ export async function shareDesign(
       message: 'Tattoo design',
     });
   } catch (error) {
-    console.error('Error sharing design:', error);
+    logger.error('Error sharing design:', error);
     Alert.alert('Error', 'Failed to share design');
   }
 }

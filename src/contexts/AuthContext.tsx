@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
 import { Session, User, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../config/supabase';
 import { initializeRevenueCat, setRevenueCatUserId, logoutRevenueCat } from '../config/revenuecat';
+import { logger } from '../utils/logger';
 
 interface AuthContextType {
   session: Session | null;
@@ -65,30 +66,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, []);
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
     });
 
     return { error };
-  };
+  }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     return { error };
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await logoutRevenueCat();
     await supabase.auth.signOut();
-  };
+  }, []);
 
-  const updateProfile = async (updates: { display_name?: string; avatar_url?: string }) => {
+  const updateProfile = useCallback(async (updates: { display_name?: string; avatar_url?: string }) => {
     if (!user) return;
 
     const { error } = await supabase
@@ -100,20 +101,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       });
 
     if (error) {
-      console.error('Error updating profile:', error);
+      logger.error('Error updating profile:', error);
       throw error;
     }
-  };
+  }, [user]);
 
-  const value: AuthContextType = {
-    session,
-    user,
-    loading,
-    signUp,
-    signIn,
-    signOut,
-    updateProfile,
-  };
+  // Memoize context value to prevent unnecessary re-renders
+  const value: AuthContextType = useMemo(
+    () => ({
+      session,
+      user,
+      loading,
+      signUp,
+      signIn,
+      signOut,
+      updateProfile,
+    }),
+    [session, user, loading, signUp, signIn, signOut, updateProfile]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

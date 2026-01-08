@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 type ThemeMode = 'light' | 'dark' | 'auto';
 
-interface ThemeContextType {
+export interface ThemeContextType {
   theme: 'light' | 'dark';
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
@@ -54,19 +54,29 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, []);
 
-  const setThemeMode = async (mode: ThemeMode) => {
+  const setThemeMode = useCallback(async (mode: ThemeMode) => {
     setThemeModeState(mode);
     await SecureStore.setItemAsync('theme_mode', mode);
-  };
+  }, []);
 
-  const theme: 'light' | 'dark' = themeMode === 'auto' 
-    ? (systemColorScheme || 'light')
-    : themeMode;
+  const theme: 'light' | 'dark' = useMemo(
+    () => (themeMode === 'auto' ? (systemColorScheme || 'light') : themeMode),
+    [themeMode, systemColorScheme]
+  );
 
-  const colors = theme === 'dark' ? darkColors : lightColors;
+  const colors = useMemo(
+    () => (theme === 'dark' ? darkColors : lightColors),
+    [theme]
+  );
+
+  // Memoize context value to prevent unnecessary re-renders
+  const contextValue = useMemo(
+    () => ({ theme, themeMode, setThemeMode, colors }),
+    [theme, themeMode, setThemeMode, colors]
+  );
 
   return (
-    <ThemeContext.Provider value={{ theme, themeMode, setThemeMode, colors }}>
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );

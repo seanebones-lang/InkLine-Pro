@@ -1,4 +1,6 @@
 import { supabase } from '../config/supabase';
+import { logger } from '../utils/logger';
+import { requestDeduplication, generateCacheKey } from '../utils/requestDeduplication';
 
 export interface GrokMessage {
   role: 'user' | 'assistant' | 'system';
@@ -56,17 +58,34 @@ export class GrokApiService {
     try {
       const headers = await this.getAuthHeaders();
       
-      const response = await fetch(this.baseUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: options.model || 'grok-beta',
-          messages: options.messages,
-          temperature: options.temperature ?? 0.7,
-          max_tokens: options.max_tokens ?? 1000,
-          stream: options.stream ?? false,
-        }),
-      });
+      const requestBody = {
+        model: options.model || 'grok-beta',
+        messages: options.messages,
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.max_tokens ?? 1000,
+        stream: options.stream ?? false,
+      };
+      
+      const bodyString = JSON.stringify(requestBody);
+      
+      // Use request deduplication for non-streaming requests only
+      // Streaming requests should not be deduplicated
+      const response = options.stream
+        ? await fetch(this.baseUrl, {
+            method: 'POST',
+            headers,
+            body: bodyString,
+          })
+        : await requestDeduplication.deduplicate(
+            generateCacheKey(this.baseUrl, 'POST', requestBody),
+            async () => {
+              return fetch(this.baseUrl, {
+                method: 'POST',
+                headers,
+                body: bodyString,
+              });
+            }
+          );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -76,7 +95,7 @@ export class GrokApiService {
       const data: GrokResponse = await response.json();
       return data;
     } catch (error) {
-      console.error('Grok API error:', error);
+      logger.error('Grok API error:', error);
       throw error;
     }
   }
@@ -127,12 +146,13 @@ export class GrokApiService {
               }
             } catch (e) {
               // Skip invalid JSON
+              logger.debug('Skipping invalid JSON chunk:', e);
             }
           }
         }
       }
     } catch (error) {
-      console.error('Grok API streaming error:', error);
+      logger.error('Grok API streaming error:', error);
       throw error;
     }
   }

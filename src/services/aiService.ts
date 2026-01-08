@@ -1,6 +1,7 @@
 import { supabase } from '../config/supabase';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { logger } from '../utils/logger';
 
 export interface ImageGenerationOptions {
   description?: string;
@@ -59,7 +60,7 @@ export async function processImageForAPI(
     
     return manipResult.uri;
   } catch (error) {
-    console.error('Error processing image:', error);
+    logger.error('Error processing image:', error);
     // Fallback to original URI if processing fails
     return imageUri;
   }
@@ -107,7 +108,7 @@ export async function imageUriToBase64(imageUri: string): Promise<string> {
     
     return base64;
   } catch (error) {
-    console.error('Error converting image to base64:', error);
+    logger.error('Error converting image to base64:', error);
     throw new Error(`Failed to convert image to base64: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -210,7 +211,7 @@ export async function generateTattooDesign(
 
     throw new Error('No image data in response');
   } catch (error) {
-    console.error('Grok Vision API error:', error);
+    logger.error('Grok Vision API error:', error);
     throw error;
   }
 }
@@ -275,7 +276,7 @@ export async function processLineart(
     
     return base64;
   } catch (error) {
-    console.error('Hugging Face lineart processing error:', error);
+    logger.error('Hugging Face lineart processing error:', error);
     throw error;
   }
 }
@@ -339,7 +340,7 @@ export async function generateTattooDesignWithLineart(
       base64: enhancedLineart,
     };
   } catch (error) {
-    console.error('Error in generateTattooDesignWithLineart:', error);
+    logger.error('Error in generateTattooDesignWithLineart:', error);
     throw error;
   }
 }

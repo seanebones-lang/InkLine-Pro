@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView } from 'rea
 import { PurchasesPackage } from 'react-native-purchases';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { logger } from '../utils/logger';
 
 interface PaywallProps {
   onDismiss?: () => void;
@@ -24,7 +25,7 @@ export const Paywall: React.FC<PaywallProps> = ({ onDismiss, onSuccess }) => {
         onSuccess?.();
       }
     } catch (error) {
-      console.error('Purchase error:', error);
+      logger.error('Purchase error:', error);
     } finally {
       setPurchasing(false);
     }
@@ -38,7 +39,7 @@ export const Paywall: React.FC<PaywallProps> = ({ onDismiss, onSuccess }) => {
         onSuccess?.();
       }
     } catch (error) {
-      console.error('Restore error:', error);
+      logger.error('Restore error:', error);
     } finally {
       setRestoring(false);
     }
@@ -91,6 +92,10 @@ export const Paywall: React.FC<PaywallProps> = ({ onDismiss, onSuccess }) => {
                   ? 'border-blue-500 bg-blue-50'
                   : 'border-gray-200 bg-gray-50'
               }`}
+              accessibilityRole="button"
+              accessibilityLabel={`Purchase ${getPackageTitle(pkg)} subscription for ${formatPrice(pkg)}`}
+              accessibilityHint={`Purchases the ${getPackageTitle(pkg)} subscription package`}
+              accessibilityState={{ disabled: purchasing }}
             >
               <View className="flex-row justify-between items-center">
                 <View className="flex-1">
@@ -121,6 +126,10 @@ export const Paywall: React.FC<PaywallProps> = ({ onDismiss, onSuccess }) => {
             onPress={handleRestore}
             disabled={restoring}
             className="mt-4 py-4 items-center"
+            accessibilityRole="button"
+            accessibilityLabel="Restore previous purchases"
+            accessibilityHint="Restores any previous subscription purchases from your account"
+            accessibilityState={{ disabled: restoring }}
           >
             {restoring ? (
               <ActivityIndicator size="small" color="#007AFF" />
@@ -137,6 +146,10 @@ export const Paywall: React.FC<PaywallProps> = ({ onDismiss, onSuccess }) => {
             onPress={onDismiss}
             disabled={purchasing}
             className="py-3 items-center"
+            accessibilityRole="button"
+            accessibilityLabel="Close paywall"
+            accessibilityHint="Closes the subscription paywall"
+            accessibilityState={{ disabled: purchasing }}
           >
             <Text className="text-gray-600 font-semibold">Maybe Later</Text>
           </TouchableOpacity>

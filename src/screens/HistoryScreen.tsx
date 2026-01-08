@@ -27,6 +27,7 @@ import {
 } from '../services/historyService';
 import { shareDesign } from '../services/printService';
 import { useTheme, ThemeContextType } from '../contexts/ThemeContext';
+import { logger } from '../utils/logger';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -57,7 +58,7 @@ const HistoryItem = React.memo<HistoryItemProps>(({ item, onPress, onDelete, onS
           }
         }
       } catch (error) {
-        console.error('Error loading image:', error);
+        logger.error('Error loading image:', error);
       } finally {
         setLoadingImage(false);
       }
@@ -193,7 +194,7 @@ const HistoryContent: React.FC = () => {
       setHasMore(result.hasMore);
       setPage(reset ? 1 : currentPage + 1);
     } catch (error) {
-      console.error('Error loading generations:', error);
+      logger.error('Error loading generations:', error);
       Alert.alert('Error', 'Failed to load history');
     } finally {
       setLoading(false);
@@ -247,7 +248,7 @@ const HistoryContent: React.FC = () => {
         Alert.alert('Error', 'Image not available for sharing');
       }
     } catch (error) {
-      console.error('Error sharing:', error);
+      logger.error('Error sharing:', error);
       Alert.alert('Error', 'Failed to share design');
     }
   }, []);
@@ -324,7 +325,7 @@ const HistoryContent: React.FC = () => {
             borderWidth: 1,
           }}
           accessibilityLabel="Search designs"
-          accessibilityRole="searchbox"
+          accessibilityRole="search"
         />
       </View>
 

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
 import { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import {
   getOfferings,
@@ -8,6 +8,7 @@ import {
   checkSubscriptionStatus,
 } from '../config/revenuecat';
 import { useAuth } from './AuthContext';
+import { logger } from '../utils/logger';
 
 interface SubscriptionContextType {
   isSubscribed: boolean;
@@ -40,7 +41,7 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
   const [offerings, setOfferings] = useState<PurchasesOffering | null>(null);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
 
-  const refreshSubscription = async () => {
+  const refreshSubscription = useCallback(async () => {
     if (!user) {
       setIsSubscribed(false);
       setIsLoading(false);
@@ -58,12 +59,12 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
       setCustomerInfo(customerInfoData);
       setIsSubscribed(checkSubscriptionStatus(customerInfoData));
     } catch (error) {
-      console.error('Error refreshing subscription:', error);
+      logger.error('Error refreshing subscription:', error);
       setIsSubscribed(false);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -72,9 +73,9 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
       setIsSubscribed(false);
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, refreshSubscription]);
 
-  const purchaseSubscription = async (pkg: PurchasesPackage): Promise<boolean> => {
+  const purchaseSubscription = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
     try {
       const newCustomerInfo = await purchasePackage(pkg);
       if (newCustomerInfo) {
@@ -84,12 +85,12 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
       }
       return false;
     } catch (error) {
-      console.error('Error purchasing subscription:', error);
+      logger.error('Error purchasing subscription:', error);
       return false;
     }
-  };
+  }, []);
 
-  const restoreSubscription = async (): Promise<boolean> => {
+  const restoreSubscription = useCallback(async (): Promise<boolean> => {
     try {
       const restoredCustomerInfo = await restorePurchases();
       if (restoredCustomerInfo) {
@@ -100,20 +101,24 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
       }
       return false;
     } catch (error) {
-      console.error('Error restoring subscription:', error);
+      logger.error('Error restoring subscription:', error);
       return false;
     }
-  };
+  }, []);
 
-  const value: SubscriptionContextType = {
-    isSubscribed,
-    isLoading,
-    offerings,
-    customerInfo,
-    refreshSubscription,
-    purchaseSubscription,
-    restoreSubscription,
-  };
+  // Memoize context value to prevent unnecessary re-renders
+  const value: SubscriptionContextType = useMemo(
+    () => ({
+      isSubscribed,
+      isLoading,
+      offerings,
+      customerInfo,
+      refreshSubscription,
+      purchaseSubscription,
+      restoreSubscription,
+    }),
+    [isSubscribed, isLoading, offerings, customerInfo, refreshSubscription, purchaseSubscription, restoreSubscription]
+  );
 
   return (
     <SubscriptionContext.Provider value={value}>
