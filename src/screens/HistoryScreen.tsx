@@ -4,11 +4,11 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   Alert,
   RefreshControl,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
 import Animated, {
   FadeIn,
@@ -42,10 +42,17 @@ interface HistoryItemProps {
 const HistoryItem = React.memo<HistoryItemProps>(({ item, onPress, onDelete, onShare, colors }) => {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [loadingImage, setLoadingImage] = useState(true);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   useEffect(() => {
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     const loadImage = async () => {
       try {
+        // Check if cancelled
+        if (abortController.signal.aborted) return;
+
         if (item.thumbnail_base64) {
           setImageUri(`data:image/png;base64,${item.thumbnail_base64}`);
         } else if (item.image_base64) {
@@ -53,17 +60,26 @@ const HistoryItem = React.memo<HistoryItemProps>(({ item, onPress, onDelete, onS
         } else {
           // Try to get full image from local storage
           const fullImage = await getGenerationImage(item.id);
-          if (fullImage) {
+          if (fullImage && !abortController.signal.aborted) {
             setImageUri(`data:image/png;base64,${fullImage}`);
           }
         }
       } catch (error) {
-        logger.error('Error loading image:', error);
+        if (!abortController.signal.aborted) {
+          logger.error('Error loading image:', error);
+        }
       } finally {
-        setLoadingImage(false);
+        if (!abortController.signal.aborted) {
+          setLoadingImage(false);
+        }
       }
     };
+    
     loadImage();
+
+    return () => {
+      abortController.abort();
+    };
   }, [item.id, item.thumbnail_base64, item.image_base64]);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -99,8 +115,10 @@ const HistoryItem = React.memo<HistoryItemProps>(({ item, onPress, onDelete, onS
             ) : imageUri ? (
               <Image
                 source={{ uri: imageUri }}
-                className="w-full h-full"
-                resizeMode="cover"
+                contentFit="cover"
+                style={{ width: '100%', height: '100%' }}
+                transition={200}
+                cachePolicy="memory-disk"
                 accessibilityLabel="Design thumbnail"
               />
             ) : (

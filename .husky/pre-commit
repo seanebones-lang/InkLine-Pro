@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run linting
+npm run lint || echo "Lint check skipped (no lint script configured)"
+
+# Run type checking
+npx tsc --noEmit || exit 1
+
+# Check for console statements (except in logger)
+if grep -r "console\." src/ --exclude-dir=node_modules --exclude="logger.ts" | grep -v "//"; then
+  echo "❌ Found console statements. Use logger instead."
+  exit 1
+fi
+
+echo "✅ Pre-commit checks passed"

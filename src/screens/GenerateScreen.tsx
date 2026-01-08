@@ -1,16 +1,16 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Image,
   ActivityIndicator,
   Alert,
   Modal,
   FlatList,
 } from 'react-native';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { ProtectedRoute } from '../components/ProtectedRoute';
@@ -28,6 +28,8 @@ import {
 import { saveGenerationLocally } from '../services/historyService';
 import { supabase } from '../config/supabase';
 import { logger } from '../utils/logger';
+import { sanitizeDescription } from '../utils/inputSanitization';
+import { grokApiCircuitBreaker } from '../utils/circuitBreaker';
 
 const GenerateContent: React.FC = () => {
   const [description, setDescription] = useState('');
@@ -44,12 +46,20 @@ const GenerateContent: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
 
+  // Request cancellation on unmount
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Memoize print options (doesn't change during component lifetime)
   const printOptions = useMemo(() => getAvailablePrintOptions(), []);
 
   // Memory leak fix: Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Cancel any pending requests
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      
       // Cleanup base64 images from memory
       setGeneratedBase64(null);
       setGeneratedImageUri(null);
@@ -149,11 +159,25 @@ const GenerateContent: React.FC = () => {
   const handleGenerate = useCallback(async () => {
     if (!validateInputs()) return;
 
+    // Cancel any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     setIsGenerating(true);
     setProgress('Processing image...');
     setGeneratedSvg(null);
 
     try {
+      // Check if request was aborted
+      if (abortController.signal.aborted) {
+        return;
+      }
+
       // Process image if provided (compress/resize for API efficiency)
       let processedImageUri = selectedImage || undefined;
       if (selectedImage) {
@@ -161,14 +185,31 @@ const GenerateContent: React.FC = () => {
         processedImageUri = await processImageForAPI(selectedImage, 2048, 2048, 0.9);
       }
 
+      // Check if request was aborted
+      if (abortController.signal.aborted) {
+        return;
+      }
+
       setProgress('Generating design with Grok...');
       
-      // Generate tattoo design with full pipeline
-      const result = await generateTattooDesignWithLineart({
-        description: description.trim() || undefined,
-        imageUri: processedImageUri,
-        highRes: true, // Enable high-res output for pro tattooers
-      });
+      // Generate tattoo design with full pipeline (sanitization happens inside)
+      // Use circuit breaker for reliability
+      const result = await grokApiCircuitBreaker.execute(
+        () => generateTattooDesignWithLineart({
+          description: description.trim() ? sanitizeDescription(description.trim()) : undefined,
+          imageUri: processedImageUri,
+          highRes: true, // Enable high-res output for pro tattooers
+        }),
+        () => {
+          // Fallback: Return error message
+          throw new Error('AI service is temporarily unavailable. Please try again later.');
+        }
+      );
+
+      // Check if request was aborted
+      if (abortController.signal.aborted) {
+        return;
+      }
 
       setProgress('Finalizing preview...');
       setGeneratedSvg(result.svg);
@@ -198,6 +239,11 @@ const GenerateContent: React.FC = () => {
       
       setProgress('');
     } catch (error: any) {
+      // Don't show error if request was cancelled
+      if (error.name === 'AbortError' || abortController.signal.aborted) {
+        return;
+      }
+      
       logger.error('Generation error:', error);
       Alert.alert(
         'Generation Failed',
@@ -206,6 +252,7 @@ const GenerateContent: React.FC = () => {
       setProgress('');
     } finally {
       setIsGenerating(false);
+      abortControllerRef.current = null;
     }
   }, [description, selectedImage]);
 
@@ -337,8 +384,10 @@ const GenerateContent: React.FC = () => {
             <View className="mb-4">
               <Image
                 source={{ uri: selectedImage }}
-                className="w-full h-64 rounded-xl mb-3"
-                resizeMode="cover"
+                contentFit="cover"
+                style={{ width: '100%', height: 256, borderRadius: 12, marginBottom: 12 }}
+                transition={200}
+                cachePolicy="memory-disk"
                 accessibilityLabel="Selected reference image"
                 accessibilityRole="image"
               />

@@ -1,0 +1,11 @@
+node_modules
+.expo
+.expo-shared
+dist
+web-build
+coverage
+*.log
+package-lock.json
+yarn.lock
+*.md
+!README.md

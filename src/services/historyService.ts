@@ -2,6 +2,7 @@ import { supabase } from '../config/supabase';
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { logger } from '../utils/logger';
+import { supabaseCircuitBreaker } from '../utils/circuitBreaker';
 
 export interface TattooGeneration {
   id: string;
@@ -19,6 +20,16 @@ export interface TattooGeneration {
 
 // Initialize SQLite database for offline storage
 let db: SQLite.SQLiteDatabase | null = null;
+
+// Prepared statements for better performance
+let preparedStatements: {
+  insert?: SQLite.SQLiteStatement;
+  select?: SQLite.SQLiteStatement;
+  selectById?: SQLite.SQLiteStatement;
+  selectByUserId?: SQLite.SQLiteStatement;
+  update?: SQLite.SQLiteStatement;
+  delete?: SQLite.SQLiteStatement;
+} = {};
 
 async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!db) {
@@ -42,7 +53,38 @@ async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       );
       CREATE INDEX IF NOT EXISTS idx_user_id ON tattoo_generations(user_id);
       CREATE INDEX IF NOT EXISTS idx_created_at ON tattoo_generations(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_synced ON tattoo_generations(synced);
     `);
+
+    // Prepare statements for better performance
+    try {
+      preparedStatements.insert = await db.prepareAsync(`
+        INSERT INTO tattoo_generations 
+        (id, user_id, description, image_base64, svg_content, thumbnail_base64, width, height, dpi, created_at, updated_at, synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      `);
+      
+      preparedStatements.selectById = await db.prepareAsync(`
+        SELECT * FROM tattoo_generations WHERE id = ?
+      `);
+      
+      preparedStatements.selectByUserId = await db.prepareAsync(`
+        SELECT * FROM tattoo_generations 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+      `);
+      
+      preparedStatements.update = await db.prepareAsync(`
+        UPDATE tattoo_generations SET synced = 1 WHERE id = ?
+      `);
+      
+      preparedStatements.delete = await db.prepareAsync(`
+        DELETE FROM tattoo_generations WHERE id = ?
+      `);
+    } catch (error) {
+      logger.warn('Error preparing statements, falling back to regular queries:', error);
+    }
   }
   return db;
 }
@@ -62,11 +104,9 @@ export async function saveGenerationLocally(generation: Omit<TattooGeneration, '
     thumbnail = generation.image_base64.substring(0, 1000);
   }
 
-  await database.runAsync(
-    `INSERT INTO tattoo_generations 
-     (id, user_id, description, image_base64, svg_content, thumbnail_base64, width, height, dpi, created_at, updated_at, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [
+  // Use prepared statement if available, otherwise fallback to regular query
+  if (preparedStatements.insert) {
+    await preparedStatements.insert.executeAsync([
       id,
       generation.user_id,
       generation.description || null,
@@ -78,8 +118,27 @@ export async function saveGenerationLocally(generation: Omit<TattooGeneration, '
       generation.dpi,
       now,
       now,
-    ]
-  );
+    ]);
+  } else {
+    await database.runAsync(
+      `INSERT INTO tattoo_generations 
+       (id, user_id, description, image_base64, svg_content, thumbnail_base64, width, height, dpi, created_at, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        id,
+        generation.user_id,
+        generation.description || null,
+        generation.image_base64 || null,
+        generation.svg_content || null,
+        thumbnail || null,
+        generation.width,
+        generation.height,
+        generation.dpi,
+        now,
+        now,
+      ]
+    );
+  }
 
   // Try to sync to Supabase in background
   syncToSupabase(id, { ...generation, id, created_at: now, updated_at: now }).catch((error) => {
@@ -97,33 +156,51 @@ async function syncToSupabase(id: string, generation: TattooGeneration): Promise
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { error } = await supabase
-      .from('tattoo_generations')
-      .upsert({
-        id,
-        user_id: user.id,
-        description: generation.description,
-        // Store only thumbnail in Supabase to save space, full image stays local
-        thumbnail_base64: generation.thumbnail_base64,
-        svg_content: generation.svg_content,
-        width: generation.width,
-        height: generation.height,
-        dpi: generation.dpi,
-        created_at: generation.created_at,
-        updated_at: generation.updated_at,
-      }, {
-        onConflict: 'id',
-      });
+    // Use circuit breaker for reliability
+    await supabaseCircuitBreaker.execute(
+      async () => {
+        const { error } = await supabase
+          .from('tattoo_generations')
+          .upsert({
+            id,
+            user_id: user.id,
+            description: generation.description,
+            // Store only thumbnail in Supabase to save space, full image stays local
+            thumbnail_base64: generation.thumbnail_base64,
+            svg_content: generation.svg_content,
+            width: generation.width,
+            height: generation.height,
+            dpi: generation.dpi,
+            created_at: generation.created_at,
+            updated_at: generation.updated_at,
+          }, {
+            onConflict: 'id',
+          });
 
-    if (!error) {
-      const database = await getDatabase();
-      await database.runAsync(
-        'UPDATE tattoo_generations SET synced = 1 WHERE id = ?',
-        [id]
-      );
-    }
+        if (error) {
+          throw error;
+        }
+
+        // Mark as synced in local database
+        const database = await getDatabase();
+        if (preparedStatements.update) {
+          await preparedStatements.update.executeAsync([id]);
+        } else {
+          await database.runAsync(
+            'UPDATE tattoo_generations SET synced = 1 WHERE id = ?',
+            [id]
+          );
+        }
+      },
+      () => {
+        // Fallback: Just log error, sync will retry later
+        logger.warn('Supabase sync failed, will retry later');
+        return Promise.resolve();
+      }
+    );
   } catch (error) {
     logger.error('Error syncing to Supabase:', error);
+    // Don't throw - offline-first means we can continue without sync
   }
 }
 
@@ -141,25 +218,35 @@ export async function getGenerationsFromSupabase(
       return { data: [], hasMore: false };
     }
 
-    let query = supabase
-      .from('tattoo_generations')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .range(page * pageSize, (page + 1) * pageSize - 1);
+    // Use circuit breaker for reliability with graceful fallback
+    return await supabaseCircuitBreaker.execute(
+      async () => {
+        let query = supabase
+          .from('tattoo_generations')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
 
-    if (searchQuery) {
-      query = query.ilike('description', `%${searchQuery}%`);
-    }
+        if (searchQuery) {
+          query = query.ilike('description', `%${searchQuery}%`);
+        }
 
-    const { data, error } = await query;
+        const { data, error } = await query;
 
-    if (error) throw error;
+        if (error) throw error;
 
-    return {
-      data: (data || []) as TattooGeneration[],
-      hasMore: (data?.length || 0) === pageSize,
-    };
+        return {
+          data: (data || []) as TattooGeneration[],
+          hasMore: (data?.length || 0) === pageSize,
+        };
+      },
+      () => {
+        // Fallback: Return empty result, will use local storage
+        logger.info('Supabase unavailable, falling back to local storage');
+        return Promise.resolve({ data: [], hasMore: false });
+      }
+    );
   } catch (error) {
     logger.error('Error fetching from Supabase:', error);
     return { data: [], hasMore: false };
@@ -220,11 +307,18 @@ export async function getGenerations(
  */
 export async function getGenerationImage(id: string): Promise<string | null> {
   const database = await getDatabase();
-  const result = await database.getFirstAsync<{ image_base64: string }>(
-    'SELECT image_base64 FROM tattoo_generations WHERE id = ?',
-    [id]
-  );
-  return result?.image_base64 || null;
+  
+  if (preparedStatements.selectById) {
+    const result = await preparedStatements.selectById.executeAsync([id]);
+    const rows = await result.getAllAsync<{ image_base64: string }>();
+    return rows[0]?.image_base64 || null;
+  } else {
+    const result = await database.getFirstAsync<{ image_base64: string }>(
+      'SELECT image_base64 FROM tattoo_generations WHERE id = ?',
+      [id]
+    );
+    return result?.image_base64 || null;
+  }
 }
 
 /**
@@ -233,7 +327,11 @@ export async function getGenerationImage(id: string): Promise<string | null> {
 export async function deleteGeneration(id: string): Promise<void> {
   // Delete from local
   const database = await getDatabase();
-  await database.runAsync('DELETE FROM tattoo_generations WHERE id = ?', [id]);
+  if (preparedStatements.delete) {
+    await preparedStatements.delete.executeAsync([id]);
+  } else {
+    await database.runAsync('DELETE FROM tattoo_generations WHERE id = ?', [id]);
+  }
 
   // Delete from Supabase
   try {

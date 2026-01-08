@@ -2,6 +2,8 @@ import { supabase } from '../config/supabase';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { logger } from '../utils/logger';
+import { sanitizeDescription } from '../utils/inputSanitization';
+import { grokApiCircuitBreaker } from '../utils/circuitBreaker';
 
 export interface ImageGenerationOptions {
   description?: string;
@@ -114,106 +116,164 @@ export async function imageUriToBase64(imageUri: string): Promise<string> {
 }
 
 /**
- * Call Grok Vision API via Supabase proxy
+ * Call Grok Vision API via Supabase proxy with retry logic
  * Generates precise black linework tattoo design
+ * Implements exponential backoff for reliability
  */
 export async function generateTattooDesign(
-  options: ImageGenerationOptions
+  options: ImageGenerationOptions,
+  retries: number = 3
 ): Promise<string> {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      throw new Error('Not authenticated');
-    }
+  const maxRetries = retries;
+  const initialDelay = 1000; // 1 second
+  const maxDelay = 10000; // 10 seconds
+  const backoffFactor = 2;
 
-    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-    const baseUrl = `${supabaseUrl}/functions/v1/grok-proxy`;
-
-    // Build prompt
-    let prompt = 'Generate precise black linework tattoo design';
-    if (options.description) {
-      prompt += ` from description: ${options.description}`;
-    }
-    if (options.imageUri) {
-      prompt += ' from reference photo';
-    }
-    prompt += ', use dots/dashes for shading references, vector quality, clean outlines, professional tattoo linework style';
-
-    // Build messages with image if provided
-    const content: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [
-      { type: 'text', text: prompt }
-    ];
-
-    if (options.imageUri) {
-      // Convert image to base64
-      const base64Image = await imageUriToBase64(options.imageUri);
-      const imageDataUrl = `data:image/jpeg;base64,${base64Image}`;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
       
-      content.push({
-        type: 'image_url',
-        image_url: { url: imageDataUrl }
-      });
-    }
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
 
-    // Use latest Grok vision model (updated for 2026)
-    // Default to latest available model - can be overridden via options if needed
-    const grokModel = options.highRes ? 'grok-3-vision' : 'grok-beta-vision';
-    
-    const requestBody: GrokVisionRequest = {
-      model: grokModel,
-      messages: [
-        {
-          role: 'user',
-          content
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+      const baseUrl = `${supabaseUrl}/functions/v1/grok-proxy`;
+
+      // Sanitize and validate description input
+      const sanitizedDescription = options.description
+        ? sanitizeDescription(options.description)
+        : undefined;
+
+      if (options.description && sanitizedDescription.length < 3) {
+        throw new Error('Description must be at least 3 characters after sanitization');
+      }
+
+      // Build prompt with sanitized input
+      let prompt = 'Generate precise black linework tattoo design';
+      if (sanitizedDescription) {
+        prompt += ` from description: ${sanitizedDescription}`;
+      }
+      if (options.imageUri) {
+        prompt += ' from reference photo';
+      }
+      prompt += ', use dots/dashes for shading references, vector quality, clean outlines, professional tattoo linework style';
+
+      // Build messages with image if provided
+      const content: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [
+        { type: 'text', text: prompt }
+      ];
+
+      if (options.imageUri) {
+        // Convert image to base64
+        const base64Image = await imageUriToBase64(options.imageUri);
+        const imageDataUrl = `data:image/jpeg;base64,${base64Image}`;
+        
+        content.push({
+          type: 'image_url',
+          image_url: { url: imageDataUrl }
+        });
+      }
+
+      // Use latest Grok vision model (updated for 2026)
+      // Default to latest available model - can be overridden via options if needed
+      const grokModel = options.highRes ? 'grok-3-vision' : 'grok-beta-vision';
+      
+      const requestBody: GrokVisionRequest = {
+        model: grokModel,
+        messages: [
+          {
+            role: 'user',
+            content
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: options.highRes ? 4000 : 2000,
+      };
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+      let response: Response;
+      try {
+        response = await fetch(baseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error('Request timeout. Please try again.');
         }
-      ],
-      temperature: 0.7,
-      max_tokens: options.highRes ? 4000 : 2000,
-    };
-
-    const response = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Extract image URL or base64 from response
-    // Grok vision API may return image in different formats
-    if (data.choices?.[0]?.message?.content) {
-      const content = data.choices[0].message.content;
-      
-      // Try to extract base64 image if present
-      const base64Match = content.match(/data:image\/[^;]+;base64,([^\s"']+)/);
-      if (base64Match) {
-        return base64Match[1];
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
       }
-      
-      // If it's a URL, fetch and convert to base64
-      const urlMatch = content.match(/https?:\/\/[^\s"']+/);
-      if (urlMatch) {
-        return await imageUriToBase64(urlMatch[0]);
-      }
-      
-      // Return the content as-is (might be SVG or other format)
-      return content;
-    }
 
-    throw new Error('No image data in response');
-  } catch (error) {
-    logger.error('Grok Vision API error:', error);
-    throw error;
+      if (!response.ok) {
+        // Don't retry on 4xx errors (client errors)
+        if (response.status >= 400 && response.status < 500) {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        }
+        // Retry on 5xx errors (server errors)
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      // Extract image URL or base64 from response
+      // Grok vision API may return image in different formats
+      if (data.choices?.[0]?.message?.content) {
+        const content = data.choices[0].message.content;
+        
+        // Try to extract base64 image if present
+        const base64Match = content.match(/data:image\/[^;]+;base64,([^\s"']+)/);
+        if (base64Match) {
+          return base64Match[1];
+        }
+        
+        // If it's a URL, fetch and convert to base64
+        const urlMatch = content.match(/https?:\/\/[^\s"']+/);
+        if (urlMatch) {
+          return await imageUriToBase64(urlMatch[0]);
+        }
+        
+        // Return the content as-is (might be SVG or other format)
+        return content;
+      }
+
+      throw new Error('No image data in response');
+    } catch (error) {
+      // If this is the last attempt, throw the error
+      if (attempt === maxRetries) {
+        logger.error('Grok Vision API error (max retries exceeded):', error);
+        throw error;
+      }
+
+      // Calculate delay with exponential backoff
+      const delay = Math.min(
+        initialDelay * Math.pow(backoffFactor, attempt),
+        maxDelay
+      );
+
+      logger.warn(
+        `Grok Vision API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
+
+  throw new Error('Max retries exceeded');
 }
 
 /**

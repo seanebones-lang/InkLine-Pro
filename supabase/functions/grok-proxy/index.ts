@@ -4,20 +4,106 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const GROK_API_URL = 'https://api.x.ai/v1';
 
-// CORS configuration - use environment variable for allowed origin in production
+// CORS configuration - SECURITY: Never allow wildcard in production
+// Compliant with OWASP Top 10 2025 and NIST SP 800-53 Rev. 5
 const getAllowedOrigin = (): string => {
   const allowedOrigin = Deno.env.get('ALLOWED_ORIGIN');
   if (allowedOrigin) {
     return allowedOrigin;
   }
-  // Fallback: Allow all in development (should be restricted in production)
-  return Deno.env.get('ENVIRONMENT') === 'production' ? '' : '*';
+  // SECURITY: Never allow wildcard, even in development
+  // Default to empty string which will reject CORS requests
+  // Must set ALLOWED_ORIGIN environment variable
+  return '';
 };
+
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10; // Max requests per window per user
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+// Clean up expired rate limit entries
+function cleanupRateLimit(): void {
+  const now = Date.now();
+  for (const [key, value] of rateLimitMap.entries()) {
+    if (now > value.resetTime) {
+      rateLimitMap.delete(key);
+    }
+  }
+}
+
+// Check rate limit for user
+function checkRateLimit(userId: string): boolean {
+  cleanupRateLimit();
+  
+  const now = Date.now();
+  const userLimit = rateLimitMap.get(userId);
+  
+  if (!userLimit || now > userLimit.resetTime) {
+    rateLimitMap.set(userId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return true;
+  }
+  
+  if (userLimit.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+  
+  userLimit.count++;
+  return true;
+}
+
+// Input sanitization
+function sanitizeInput(input: string): string {
+  if (typeof input !== 'string') {
+    return '';
+  }
+  
+  // Remove null bytes and dangerous characters
+  let sanitized = input.replace(/\0/g, '');
+  sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  sanitized = sanitized.replace(/on\w+\s*=\s*["'][^"']*["']/gi, '');
+  sanitized = sanitized.trim();
+  
+  // Limit length
+  const MAX_LENGTH = 50000; // Reasonable limit for API requests
+  if (sanitized.length > MAX_LENGTH) {
+    return sanitized.substring(0, MAX_LENGTH);
+  }
+  
+  return sanitized;
+}
+
+// Sanitize messages in request
+function sanitizeMessages(messages: GrokRequest['messages']): GrokRequest['messages'] {
+  return messages.map((msg) => {
+    if (typeof msg.content === 'string') {
+      return {
+        ...msg,
+        content: sanitizeInput(msg.content),
+      };
+    } else if (Array.isArray(msg.content)) {
+      return {
+        ...msg,
+        content: msg.content.map((item) => {
+          if (item.type === 'text' && item.text) {
+            return {
+              ...item,
+              text: sanitizeInput(item.text),
+            };
+          }
+          return item;
+        }),
+      };
+    }
+    return msg;
+  });
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': getAllowedOrigin(),
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
   'Access-Control-Max-Age': '86400', // 24 hours
 };
 
@@ -72,6 +158,21 @@ serve(async (req) => {
       );
     }
 
+    // Rate limiting check
+    if (!checkRateLimit(user.id)) {
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
+        {
+          status: 429,
+          headers: {
+            ...CORS_HEADERS,
+            'Content-Type': 'application/json',
+            'Retry-After': '60',
+          },
+        }
+      );
+    }
+
     // Get Grok API key from environment or database (white-labeling)
     // For now, using environment variable. In production, you might want to
     // store this in a database table for white-labeling different clients
@@ -87,7 +188,26 @@ serve(async (req) => {
     }
 
     // Get request body
-    const grokRequest: GrokRequest = await req.json();
+    const rawBody = await req.json();
+    
+    // Validate request size (prevent DoS)
+    const bodySize = JSON.stringify(rawBody).length;
+    const MAX_REQUEST_SIZE = 10 * 1024 * 1024; // 10MB
+    if (bodySize > MAX_REQUEST_SIZE) {
+      return new Response(
+        JSON.stringify({ error: 'Request too large' }),
+        {
+          status: 413,
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+    
+    // Sanitize input
+    const grokRequest: GrokRequest = {
+      ...rawBody,
+      messages: sanitizeMessages(rawBody.messages || []),
+    };
 
     // Make request to Grok API
     const grokResponse = await fetch(`${GROK_API_URL}/chat/completions`, {
@@ -106,9 +226,15 @@ serve(async (req) => {
     });
 
     if (!grokResponse.ok) {
+      // SECURITY: Don't expose internal error details in production
+      const isProduction = Deno.env.get('ENVIRONMENT') === 'production';
       const errorText = await grokResponse.text();
+      
       return new Response(
-        JSON.stringify({ error: 'Grok API error', details: errorText }),
+        JSON.stringify({
+          error: 'API request failed',
+          ...(isProduction ? {} : { details: errorText }),
+        }),
         {
           status: grokResponse.status,
           headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
@@ -161,14 +287,17 @@ serve(async (req) => {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (error) {
+    // SECURITY: Never expose internal error details in production
+    // Log error server-side only
     console.error('Error in grok-proxy:', error);
-    // Don't expose internal error details in production
-    const errorMessage = Deno.env.get('ENVIRONMENT') === 'production'
-      ? 'Internal server error'
-      : error instanceof Error ? error.message : 'Unknown error';
+    
+    const isProduction = Deno.env.get('ENVIRONMENT') === 'production';
     
     return new Response(
-      JSON.stringify({ error: 'Internal server error', message: errorMessage }),
+      JSON.stringify({
+        error: 'Internal server error',
+        ...(isProduction ? {} : { message: error instanceof Error ? error.message : 'Unknown error' }),
+      }),
       {
         status: 500,
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },

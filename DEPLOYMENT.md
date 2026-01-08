@@ -1,10 +1,17 @@
 # Deployment Guide
 
+**Last Updated:** January 2026  
+**For detailed platform-specific guides, see:**
+- **[IOS_BUILD_GUIDE.md](./IOS_BUILD_GUIDE.md)** - Complete iOS build, test, and archive guide
+- **[ANDROID_BUILD_GUIDE.md](./ANDROID_BUILD_GUIDE.md)** - Complete Android build, test, and archive guide
+
 ## Pre-Deployment Checklist
 
 - [ ] All tests passing (`npm test`)
-- [ ] No TypeScript errors
-- [ ] No linting errors
+- [ ] No TypeScript errors (`npm run typecheck`)
+- [ ] No linting errors (`npm run lint`)
+- [ ] Code formatted (`npm run format:check`)
+- [ ] All validations pass (`npm run validate`)
 - [ ] App Store checklist completed
 - [ ] Privacy Policy published
 - [ ] Terms of Service published
@@ -12,6 +19,8 @@
 - [ ] Build number incremented
 - [ ] Environment variables configured
 - [ ] API keys secured (not in code)
+- [ ] Health checks verified
+- [ ] Circuit breakers tested
 
 ## EAS Build Setup
 
@@ -32,13 +41,17 @@ eas build:configure
 
 ## Build Commands
 
+> **Note:** For comprehensive build guides with troubleshooting and FAQs, see:
+> - [IOS_BUILD_GUIDE.md](./IOS_BUILD_GUIDE.md)
+> - [ANDROID_BUILD_GUIDE.md](./ANDROID_BUILD_GUIDE.md)
+
 ### Development Build
 ```bash
-# iOS
-eas build --profile development --platform ios
+# iOS (with local option for faster builds)
+eas build --profile development --platform ios --local
 
-# Android
-eas build --profile development --platform android
+# Android (with local option for faster builds)
+eas build --profile development --platform android --local
 
 # Both
 eas build --profile development --platform all
@@ -46,7 +59,7 @@ eas build --profile development --platform all
 
 ### Preview Build (Internal Testing)
 ```bash
-# iOS
+# iOS (creates .ipa for TestFlight)
 eas build --profile preview --platform ios
 
 # Android

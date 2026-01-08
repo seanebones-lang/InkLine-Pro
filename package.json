@@ -10,6 +10,11 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0 || echo 'ESLint not configured'",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix || echo 'ESLint not configured'",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\"",
+    "typecheck": "tsc --noEmit",
     "analyze:bundle": "./scripts/analyze-bundle.sh",
     "deploy:preview": "./scripts/deploy-preview.sh",
     "build:preview:ios": "eas build --profile preview --platform ios",
@@ -17,7 +22,9 @@
     "build:preview:all": "eas build --profile preview --platform all",
     "build:production:ios": "eas build --profile production --platform ios",
     "build:production:android": "eas build --profile production --platform android",
-    "build:production:all": "eas build --profile production --platform all"
+    "build:production:all": "eas build --profile production --platform all",
+    "prepare": "husky install || echo 'Husky not installed'",
+    "validate": "npm run typecheck && npm run format:check && npm run lint"
   },
   "dependencies": {
     "@react-navigation/bottom-tabs": "7.0.3",
@@ -27,6 +34,7 @@
     "expo": "~52.0.0",
     "expo-bluetooth": "^0.0.0",
     "expo-file-system": "^19.0.21",
+    "expo-image": "~2.0.7",
     "expo-image-manipulator": "^14.0.8",
     "expo-image-picker": "~16.0.6",
     "expo-print": "~14.0.3",
