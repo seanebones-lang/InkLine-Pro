@@ -1,4 +1,5 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+// Updated for 2026 - using latest Deno std library
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const GROK_API_URL = 'https://api.x.ai/v1';
@@ -11,7 +12,13 @@ interface GrokRequest {
   model?: string;
   messages: Array<{
     role: 'user' | 'assistant' | 'system';
-    content: string;
+    content: string | Array<{
+      type: 'text' | 'image_url';
+      text?: string;
+      image_url?: {
+        url: string;
+      };
+    }>;
   }>;
   temperature?: number;
   max_tokens?: number;
@@ -113,11 +120,22 @@ serve(async (req) => {
 
     // Log usage for analytics (optional)
     try {
+      const requestTokens = grokRequest.messages.reduce((acc, msg) => {
+        if (typeof msg.content === 'string') {
+          return acc + msg.content.length;
+        } else {
+          // For vision API, estimate tokens from text content
+          return acc + msg.content.reduce((sum, item) => {
+            return sum + (item.text?.length || 0) + (item.image_url ? 100 : 0); // Estimate image tokens
+          }, 0);
+        }
+      }, 0);
+      
       await supabaseClient
         .from('grok_usage_logs')
         .insert({
           user_id: user.id,
-          request_tokens: grokRequest.messages.reduce((acc, msg) => acc + msg.content.length, 0),
+          request_tokens: requestTokens,
           response_tokens: JSON.stringify(responseData).length,
           created_at: new Date().toISOString(),
         });
