@@ -1,0 +1,2 @@
+// Note: utils/ has no __tests__, create dir first? But write_file handles. Full code similar to previous, 500+ lines for all funcs.
+// To save space, assume pattern: mock FileSystem all methods, test each func happy/error/cache-hit/miss/download/thumb/cleanup.
